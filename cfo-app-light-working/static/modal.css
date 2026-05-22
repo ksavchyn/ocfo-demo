@@ -1,0 +1,785 @@
+/**
+ * Unified Modal Styles for CFO Dashboard
+ * This file contains all modal-related CSS shared across all pages
+ */
+
+/* Main Modal Container */
+.chat-modal {
+    display: none !important;  /* Force display none by default */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: 1999;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    /* No transitions - instant show/hide */
+}
+
+.chat-modal.show {
+    display: flex !important;  /* Force display flex when showing */
+    /* Modal appears instantly when show class is added */
+}
+
+/* Modal Content Box - Consistent size and position for both chat and email */
+.chat-modal-content {
+    width: 850px;  /* Increased to match email modal width */
+    max-width: calc(100vw - 80px);
+    height: auto;  /* Allow dynamic height */
+    min-height: 400px;  /* Minimum height */
+    max-height: 85vh;  /* Use viewport height for better responsiveness */
+    background: #ffffff;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(0, 122, 204, 0.2);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;  /* Changed from fixed to relative */
+    margin: auto;  /* Center with margin auto instead of transform */
+    /* No transitions to ensure instant appearance */
+}
+
+/* Modal Header */
+.chat-modal-header {
+    padding: 16px 20px;
+    background: #10b981;
+    border: 1.5px solid #10b981;
+    border-bottom: 1.5px solid #10b981;
+    border-radius: 12px 12px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-title {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chat-title .genie-sparkle {
+    background: linear-gradient(135deg, #fbbf24, #facc15, #fde047);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-size: 18px;
+    filter: drop-shadow(0 0 8px rgba(255, 95, 70, 0.5));
+}
+
+/* Close Button */
+.chat-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: #ffffff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Removed transition for instant rendering */
+    font-size: 18px;
+    line-height: 1;
+}
+
+.chat-close:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+/* Question Selector View */
+#questionSelectorView {
+    padding: 24px;
+}
+
+.ai-assistant-intro {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.ai-questions-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.question-button {
+    background: #ffffff !important;
+    border: 1.5px solid #e5e7eb !important;
+    color: #374151 !important;
+    padding: 16px 20px;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    width: 100%;
+}
+
+.question-button:hover {
+    background: #f0fdf4 !important;
+    border-color: #10b981 !important;
+    transform: translateX(4px);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+}
+
+/* Custom Question Input Section */
+.ai-custom-question {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    gap: 12px;
+}
+
+.ai-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #374151;
+    background: #ffffff;
+    transition: all 0.2s ease;
+}
+
+.ai-input:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+.ai-input::placeholder {
+    color: #9ca3af;
+}
+
+.ai-send-btn {
+    padding: 12px 24px;
+    background: #10b981;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none !important;
+}
+
+.ai-send-btn:hover {
+    background: #059669;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    text-decoration: none !important;
+}
+
+/* Chat View */
+#chatView {
+    display: flex;
+    flex-direction: column;
+    min-height: 65vh;  /* Use viewport height for better responsiveness */
+    height: auto;  /* Allow dynamic expansion */
+    max-height: 75vh;  /* Maximum height limit to prevent overflow */
+}
+
+/* Dynamic chat view scaling class */
+#chatView.expanded {
+    height: auto;  /* Let content determine height */
+    transition: height 0.3s ease;  /* Smooth transition when expanding */
+}
+
+/* Chat Messages Container */
+.chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 420px;  /* Increased minimum height */
+    max-height: 580px;  /* Increased max height for longer responses */
+    background: #fafafa;
+    border-top: 1px solid #e5e7eb;
+}
+
+.chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.15);
+}
+
+/* Chat Message Styles */
+.chat-message {
+    padding: 12px 16px;
+    border-radius: 8px;
+    max-width: 85%;
+}
+
+.chat-message.user {
+    background: #e0f2fe;
+    align-self: flex-end;
+    margin-left: auto;
+}
+
+.chat-message.genie {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    align-self: flex-start;
+}
+
+.chat-message.thought-process {
+    background-color: #f0f3f7;
+    border-left: 3px solid #3498db;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 8px;
+    color: #374151;
+}
+
+/* Suggested follow-up question chips — match the analysis-box blue palette.
+   !important is required to defeat green button overrides elsewhere. */
+.suggested-question-chip {
+    background: #f0f3f7 !important;
+    background-color: #f0f3f7 !important;
+    border: 1px solid #3498db !important;
+    color: #3498db !important;
+    padding: 6px 12px !important;
+    border-radius: 16px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    text-align: left !important;
+    max-width: 100% !important;
+    transition: background 0.15s ease !important;
+}
+
+.suggested-question-chip:hover {
+    background: #e3edf6 !important;
+    background-color: #e3edf6 !important;
+    border-color: #2c7cb8 !important;
+    color: #2c7cb8 !important;
+    transform: none !important;
+}
+
+/* Chat Input Container */
+.chat-input-container {
+    padding: 16px 20px;
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    display: flex;
+    gap: 8px;
+    background: #ffffff;
+    border-radius: 0 0 12px 12px;
+}
+
+.chat-input {
+    flex: 1;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    color: #1f2937;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+.send-btn {
+    background: #10b981;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.3s;
+    text-decoration: none !important;
+}
+
+.send-btn:hover {
+    background: #059669;
+    transform: translateY(-1px);
+    text-decoration: none !important;
+}
+
+/* Export Button */
+.export-btn {
+    padding: 10px 16px;
+    background: linear-gradient(135deg, #10b981, #34d399);
+    color: #1f2937;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.3s;
+    display: none;
+    text-decoration: none !important;
+}
+
+.export-btn:hover {
+    background: linear-gradient(135deg, #059669, #10b981);
+    transform: translateY(-1px);
+    text-decoration: none !important;
+}
+
+/* Removed animations to prevent modal jumping - modal now appears instantly centered */
+
+/* Spinner Animation */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #007acc;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* In-progress dots for status steps. ✓ replaces these once the step completes. */
+.status-loading-dots {
+    display: inline-block;
+    letter-spacing: 1px;
+}
+.status-loading-dots span {
+    animation: statusDot 1.4s infinite both;
+    opacity: 0;
+}
+.status-loading-dots span:nth-child(1) { animation-delay: 0s; }
+.status-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.status-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes statusDot {
+    0%, 80%, 100% { opacity: 0.2; }
+    40% { opacity: 1; }
+}
+
+/* Message formatting */
+.chat-message strong {
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.chat-message em {
+    font-style: italic;
+}
+
+/* Tables in chat messages - FORCE LIGHT THEME */
+.chat-message.genie table,
+.chat-message table,
+.chat-messages table {
+    font-size: 12px !important;
+    margin: 10px 0;
+    border-collapse: collapse;
+    width: auto;
+    max-width: 100%;
+    background-color: #ffffff !important;
+}
+
+.chat-message.genie th,
+.chat-message.genie td,
+.chat-message th,
+.chat-message td,
+.chat-messages th,
+.chat-messages td {
+    padding: 6px 10px !important;
+    border: 1px solid #e5e7eb !important;
+    text-align: left;
+    font-size: 12px !important;
+}
+
+.chat-message.genie th,
+.chat-message th,
+.chat-messages th {
+    background-color: #f3f4f6 !important;
+    font-weight: 600 !important;
+    color: #1f2937 !important;
+}
+
+.chat-message.genie td,
+.chat-message td,
+.chat-messages td {
+    background-color: #ffffff !important;
+    color: #374151 !important;
+}
+
+/* Override any dark mode or theme colors for tables */
+.chat-modal table,
+.chat-modal th,
+.chat-modal td {
+    background: none !important;
+}
+
+.chat-modal .chat-message table {
+    background-color: #ffffff !important;
+}
+
+.chat-modal .chat-message th {
+    background-color: #f3f4f6 !important;
+    color: #1f2937 !important;
+}
+
+.chat-modal .chat-message td {
+    background-color: #ffffff !important;
+    color: #374151 !important;
+}
+
+/* Headers in chat messages */
+.chat-message.genie h1,
+.chat-message.genie h2,
+.chat-message.genie h3,
+.chat-message.genie h4,
+.chat-message.genie h5,
+.chat-message.genie h6 {
+    color: #1f2937;
+    margin: 12px 0 8px 0;
+    line-height: 1.4;
+}
+
+.chat-message.genie h1 { font-size: 16px; font-weight: 600; }
+.chat-message.genie h2 { font-size: 15px; font-weight: 600; }
+.chat-message.genie h3 { font-size: 14px; font-weight: 600; }
+.chat-message.genie h4 { font-size: 13px; font-weight: 500; }
+
+/* Paragraphs in chat messages */
+.chat-message.genie p {
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 8px 0;
+}
+
+/* Email Modal Styles */
+.email-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.email-modal.active {
+    display: flex;
+}
+
+.email-content {
+    width: 850px !important;  /* Increased width to accommodate tone selector */
+    max-width: calc(100vw - 80px) !important;
+    max-height: 600px !important;  /* Force consistent height across all pages */
+    height: auto !important;  /* Allow dynamic height but respect max-height */
+    background: white !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1) !important;
+    overflow: hidden !important;
+    position: relative !important;  /* Force relative positioning */
+    margin: auto !important;  /* Center with margin auto */
+    display: flex !important;
+    flex-direction: column !important;
+    border: 1px solid rgba(0, 122, 204, 0.2) !important;  /* Consistent border */
+}
+
+.email-header {
+    padding: 20px !important;
+    background: linear-gradient(135deg, #10b981, #34d399) !important;  /* Force green gradient for all pages */
+    border-bottom: none !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    position: relative !important;  /* Required for absolute positioning of badge */
+    border-radius: 12px 12px 0 0 !important;  /* Consistent rounded top corners */
+}
+
+.email-title {
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    margin: 0 !important;
+    color: white !important;  /* Force white text on green background */
+}
+
+.ai-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 5px 12px !important;
+    background: rgba(255, 255, 255, 0.2) !important;  /* Subtle white background to match Finance */
+    color: white !important;  /* Force white text to stand out on green header */
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;  /* Force subtle white border */
+    border-radius: 12px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    position: absolute !important;
+    right: 20px !important;
+    top: 20px !important;  /* Fixed position from top instead of centering */
+}
+
+.email-body {
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.email-form-group {
+    margin-bottom: 15px;
+}
+
+.email-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #374151;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.email-form-group input,
+.email-form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.email-form-group textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+#emailContent {
+    min-height: 120px;
+}
+
+.ai-rewrite-button {
+    padding: 8px 14px !important;
+    background: transparent !important;
+    color: #ff5f46 !important;
+    border: 1px solid #ff5f46 !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    transition: all 0.2s;
+}
+
+.ai-rewrite-button:hover {
+    background: rgba(255, 95, 70, 0.1) !important;
+    border-color: #ff5f46 !important;
+    color: #ff5f46 !important;
+}
+
+.email-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f9fafb;
+    min-height: 60px;
+    flex-wrap: nowrap;
+    gap: 10px;
+}
+
+/* Rewrite section with tone selector */
+.rewrite-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+}
+
+.tone-selector {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    background: #f3f4f6 !important;  /* Gray background bar */
+    padding: 8px 12px !important;  /* Padding for the bar */
+    border-radius: 8px !important;  /* Rounded corners for the bar */
+    margin-left: 8px !important;  /* Space from AI Rewrite button */
+}
+
+.tone-selector.show {
+    display: flex;
+}
+
+.tone-label {
+    color: #6b7280 !important;  /* Slightly lighter gray text */
+    font-size: 13px !important;
+    font-weight: 500 !important;  /* Slightly bolder */
+    white-space: nowrap !important;
+    margin-right: 4px !important;
+    /* Removed individual background since parent has it now */
+}
+
+.tone-btn {
+    padding: 6px 12px !important;
+    background: white !important;
+    color: #374151 !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    font-size: 13px !important;  /* Slightly larger text */
+    font-weight: 500 !important;  /* Make text more visible */
+    transition: all 0.2s;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
+
+.tone-btn:hover {
+    background: rgba(255, 95, 70, 0.08) !important;
+    border-color: #ff5f46 !important;
+    color: #ff5f46 !important;
+}
+
+.tone-btn.active,
+.tone-btn:active {
+    background: rgba(255, 95, 70, 0.15) !important;
+    border-color: #ff5f46 !important;
+    color: #ff5f46 !important;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.cancel-button,
+.send-button {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cancel-button {
+    background: #f3f4f6 !important;
+    color: #374151 !important;
+    border: 1px solid #d1d5db !important;
+}
+
+.cancel-button:hover {
+    background: #e5e7eb !important;
+    border-color: #9ca3af !important;
+}
+
+.send-button {
+    background: #10b981 !important;
+    color: white !important;
+}
+
+.send-button:hover {
+    background: #059669 !important;
+    transform: translateY(-1px);
+}
+
+/* Code blocks in AI chat responses — light theme, GitHub-style.
+   Scoped to the chat modal so we don't override <pre>/<code> anywhere else. */
+#chatModal .chat-message pre,
+.chat-modal .chat-message pre,
+.chat-messages pre {
+    background: #f5f7fa;
+    color: #1a1a1a;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+    word-wrap: normal;
+}
+
+#chatModal .chat-message pre code,
+.chat-modal .chat-message pre code,
+.chat-messages pre code {
+    background: transparent;
+    color: inherit;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    white-space: pre;
+}
+
+/* Inline code (not inside <pre>) */
+#chatModal .chat-message code,
+.chat-modal .chat-message code,
+.chat-messages code {
+    background: #f1f3f5;
+    color: #1a1a1a;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12.5px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .chat-modal-content,
+    .email-content {
+        width: 100%;
+        max-width: calc(100vw - 40px);
+        max-height: calc(100vh - 40px);
+        position: relative;  /* Keep relative positioning */
+        margin: auto;  /* Center with margin instead of transform */
+    }
+
+    .ai-questions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ai-custom-question {
+        flex-direction: column;
+    }
+}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} - Coming Soon{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="coming-soon">
+        <h1><i class="fas fa-hammer"></i> {{ page_title }}</h1>
+        <p>{{ description }}</p>
+        <p>This module is currently under development and will be available soon as part of the CFO Control Center.</p>
+
+        <div style="margin-top: var(--spacing-xl);">
+            <a href="{{ url_for('landing_page') }}" style="display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-xl); background: var(--db-accent-primary); color: white; border-radius: var(--radius-md); text-decoration: none; font-weight: 600; transition: background var(--transition-fast);">
+                <i class="fas fa-arrow-left"></i>
+                Back to Exec Summary
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

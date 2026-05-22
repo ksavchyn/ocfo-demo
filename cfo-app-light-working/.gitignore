@@ -1,0 +1,19 @@
+# Bundle build artifacts
+dashboards/_build/
+
+# Python compiled
+__pycache__/
+*.pyc
+
+# Backup files (we delete these but git won't track new ones)
+*.bak
+*.bak2
+*.bak3
+*.pre_cleanup.bak
+
+# Databricks bundle local state
+.databricks/
+
+# Local-only Genie space state (contains Kateryna's environment IDs)
+genie_insights/dev_space_id.json
+genie_insights/merged_space_id.json

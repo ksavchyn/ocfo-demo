@@ -1,0 +1,873 @@
+<!-- templates/admin.html - Admin page with embedded Lakeview dashboard -->
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<style>
+    /* Reset body and html to ensure full width */
+    body, html {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+    }
+
+    /* Override main content to remove all padding */
+    .main-content {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        min-height: calc(100vh - 60px);
+        position: relative;
+        overflow-y: auto;
+        background: #0b2026;
+    }
+
+    /* Unified content wrapper for both dashboard and tables - MATCHING FINANCE PAGE */
+    .admin-content-wrapper {
+        max-width: 1440px; /* Set a max width for centering */
+        margin: 0 auto;
+        padding: 0;
+        position: relative;
+    }
+
+    /* Dashboard container - increased height to show all admin charts */
+    .dashboard-container {
+        position: relative;
+        width: 100%;
+        height: 1180px; /* Final adjustment to fully show all admin dashboard charts */
+        background: #0b2026;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    /* Iframe with proper sizing - increased for admin dashboard */
+    .dashboard-iframe {
+        width: 108%; /* Make iframe wider */
+        height: 1180px; /* Increased to match container height */
+        border: none;
+        margin: 0;
+        padding: 0;
+        background: #0b2026;
+        display: block;
+        transform: scale(1.08); /* Scale up slightly */
+        transform-origin: left top; /* Scale from left-top corner */
+        position: relative;
+        left: 0; /* Start from left edge - no negative offset */
+    }
+
+    /* Loading indicator */
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #0b2026;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top: 4px solid #007acc;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        position: absolute;
+        margin-top: 70px;
+        color: #888;
+        font-size: 14px;
+    }
+
+    /* Admin tables section styles - MATCHING FINANCE PAGE EXACTLY */
+    .admin-tables-section {
+        padding: var(--spacing-xl) 30px var(--spacing-xl) 0; /* Match finance page padding exactly */
+        width: 100%;
+        background: #0b2026;
+        box-sizing: border-box;
+    }
+
+    .workflow-section {
+        margin-bottom: var(--spacing-xxl);
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--db-text-primary);
+        margin-bottom: var(--spacing-lg);
+    }
+
+    /* Table styles - matching Finance tab exactly */
+    .data-table {
+        width: 100%;
+        background: var(--db-background-secondary);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .data-table table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    .data-table th {
+        background: rgba(0, 0, 0, 0.4);
+        color: var(--db-text-primary);
+        padding: var(--spacing-md);
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--db-accent-primary);
+    }
+
+    .data-table td {
+        padding: var(--spacing-md);
+        color: var(--db-text-primary);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .data-table td:last-child,
+    .data-table th:last-child {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .data-table tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* Variance color coding */
+    .variance-negative {
+        color: var(--db-accent-danger);
+        font-weight: 600;
+    }
+
+    .variance-warning {
+        color: var(--db-accent-warning);
+        font-weight: 600;
+    }
+
+    /* Email Modal Styles - matching Finance page exactly */
+    .email-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .email-modal.active {
+        display: flex;
+    }
+
+    .email-content {
+        background: var(--db-background-secondary);
+        border-radius: var(--radius-lg);
+        width: 90%;
+        max-width: 800px;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .email-header {
+        padding: var(--spacing-md) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid var(--db-accent-gray);
+    }
+
+    .email-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--db-text-primary);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .email-form {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+
+    .form-group {
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .form-label {
+        display: block;
+        color: var(--db-accent-gray);
+        margin-bottom: 4px;
+        font-size: 0.8rem;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 6px 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-sm);
+        color: var(--db-text-primary);
+        font-family: inherit;
+        font-size: 0.85rem;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--db-accent-primary);
+        box-shadow: 0 0 0 0.2rem rgba(0, 122, 204, 0.25);
+    }
+
+    .form-textarea {
+        min-height: 200px;
+        max-height: 300px;
+        resize: vertical;
+        font-size: 0.85rem;
+        line-height: 1.5;
+    }
+
+    /* Button styles - matching Finance tab */
+    .btn-action {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: var(--db-accent-primary);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-action:hover {
+        background: var(--db-accent-danger);
+        transform: translateY(-1px);
+    }
+
+    .btn-notification {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: var(--db-accent-primary);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-notification:hover {
+        background: var(--db-accent-danger);
+        transform: translateY(-1px);
+    }
+
+    .btn-primary {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: var(--db-accent-green);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-primary:hover {
+        background: #45a049;
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--db-text-primary);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Email footer - matching Finance page */
+    .email-footer {
+        padding: var(--spacing-md) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.2);
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--spacing-md);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .ai-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        background: rgba(74, 156, 184, 0.2);
+        color: var(--db-accent-teal);
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        margin-left: var(--spacing-sm);
+    }
+
+    .cancel-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--db-text-primary);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .cancel-button:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    .send-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: var(--db-accent-green);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+        transition: all var(--transition-fast);
+    }
+
+    .send-button:hover {
+        background: #45a049;
+        transform: translateY(-1px);
+    }
+
+    /* Toast notification */
+    .confirmation-toast {
+        visibility: hidden;
+        min-width: 250px;
+        background-color: #28a745;
+        color: white;
+        text-align: center;
+        border-radius: 6px;
+        padding: 16px;
+        position: fixed;
+        z-index: 1001;
+        left: 50%;
+        bottom: 30px;
+        transform: translateX(-50%);
+        font-size: 14px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .confirmation-toast.show {
+        visibility: visible;
+        animation: fadein 0.5s, fadeout 0.5s 2.5s;
+    }
+
+    @keyframes fadein {
+        from {bottom: 0; opacity: 0;}
+        to {bottom: 30px; opacity: 1;}
+    }
+
+    @keyframes fadeout {
+        from {bottom: 30px; opacity: 1;}
+        to {bottom: 0; opacity: 0;}
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Unified wrapper for dashboard -->
+<div class="admin-content-wrapper">
+    <!-- Dashboard container -->
+    <div class="dashboard-container">
+        <!-- Loading indicator -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Admin Dashboard...</div>
+        </div>
+
+        <!-- Dashboard iframe with embed URL format and Genie enabled through embed path -->
+        <iframe
+            id="dashboardIframe"
+            class="dashboard-iframe"
+            src="https://e2-demo-west.cloud.databricks.com/embed/dashboardsv3/01f118dca4c511eeb07c075fc6c8dfdb?o=2556758628403379"
+            allowfullscreen
+            frameborder="0"
+            scrolling="no"
+            onload="document.getElementById('loadingOverlay').style.display='none';">
+        </iframe>
+    </div>
+
+    <!-- Admin Tables Section - NOW INSIDE THE CONTENT WRAPPER -->
+    <div class="admin-tables-section">
+    <!-- Revenue Performance Table -->
+    <div class="workflow-section">
+        <h2 class="section-title">Industry / Practice Areas > 10% Behind Revenue Targets</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Industry / Practice Area</th>
+                        <th>Accrued Rev</th>
+                        <th>Pipeline Rev</th>
+                        <th>Run-rate Target (%var)</th>
+                        <th>Lead Partner</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="revenueTableBody">
+                    <!-- Data will be loaded dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Expense Outliers Table -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top Expense Outliers (>10% Beyond Run-rate Budget)</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th>Accrued Expenses</th>
+                        <th>Run-rate Budget (% var)</th>
+                        <th>Lead</th>
+                    <th>Initiate Action</th>
+                </tr>
+            </thead>
+            <tbody id="expenseTableBody">
+                <!-- Data will be loaded dynamically -->
+            </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div> <!-- End of admin-content-wrapper -->
+
+<!-- Email Modal (matching Finance page structure) -->
+<div class="email-modal" id="emailModal">
+    <div class="email-content">
+        <div class="email-header">
+            <h3 class="email-title">Send Automated Nudge <span class="ai-badge"><i class="fas fa-magic"></i> AI Generated</span></h3>
+            <p style="color: var(--db-accent-gray); font-size: 0.8rem; margin: 4px 0 0 0;">Review and customize the AI-generated email before sending</p>
+        </div>
+        <form class="email-form">
+            <div class="form-group">
+                <label class="form-label">To:</label>
+                <input type="text" class="form-input" id="emailTo" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Subject:</label>
+                <input type="text" class="form-input" id="emailSubject">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Message:</label>
+                <textarea class="form-input form-textarea" id="emailContent"></textarea>
+            </div>
+        </form>
+        <div class="email-footer">
+            <button class="ai-badge" id="regenerateBtn" style="cursor: pointer; border: 1px solid var(--db-accent-teal);" onclick="rewriteEmail()">
+                <i class="fas fa-sync"></i> AI Rewrite
+            </button>
+            <button class="cancel-button" onclick="closeModal()">Cancel</button>
+            <button class="send-button" onclick="sendEmail()"><i class="fas fa-paper-plane"></i> Send</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Toast -->
+<div id="confirmationToast" class="confirmation-toast">
+    <span id="toastMessage"></span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Hide loading after timeout as fallback
+    setTimeout(function() {
+        var loader = document.getElementById('loadingOverlay');
+        if (loader) loader.style.display = 'none';
+    }, 5000);
+
+    // Store current action context
+    let currentAction = null;
+    let rewriteCount = 0;
+
+    // Load data when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadRevenueData();
+        loadExpenseData();
+    });
+
+    // Load revenue performance data
+    function loadRevenueData() {
+        const tbody = document.getElementById('revenueTableBody');
+
+        // Sample data matching the requirements
+        const revenueData = [
+            { area: 'Healthcare', accrued: 45000000, pipeline: 12000000, target: 60000000, variance: -25, partner: 'Anya Sharma' },
+            { area: 'Retail', accrued: 32000000, pipeline: 8000000, target: 42000000, variance: -23.8, partner: 'Benjamin Johnson' },
+            { area: 'Public Sector', accrued: 28000000, pipeline: 5000000, target: 35000000, variance: -20, partner: 'Chloe Williams' },
+            { area: 'Consulting', accrued: 50000000, pipeline: 15000000, target: 62000000, variance: -19.4, partner: 'David Lee' },
+            { area: 'Technology', accrued: 75000000, pipeline: 20000000, target: 90000000, variance: -16.7, partner: 'Ethan Davis' }
+        ];
+
+        tbody.innerHTML = '';
+        revenueData.forEach(item => {
+            const row = document.createElement('tr');
+            const varianceClass = item.variance < -20 ? 'variance-negative' : 'variance-warning';
+
+            row.innerHTML = `
+                <td>${item.area}</td>
+                <td>$${(item.accrued / 1000000).toFixed(0)}M</td>
+                <td>$${(item.pipeline / 1000000).toFixed(0)}M</td>
+                <td class="${varianceClass}">$${(item.target / 1000000).toFixed(0)}M (${item.variance.toFixed(1)}%)</td>
+                <td>${item.partner}</td>
+                <td>
+                    <button class="btn btn-action" onclick='initiateNudge(${JSON.stringify({
+                        area: item.area,
+                        partner: item.partner,
+                        accrued: item.accrued,
+                        pipeline: item.pipeline,
+                        target: item.target,
+                        variance: item.variance
+                    })})'>Nudge</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    // Load expense outliers data
+    function loadExpenseData() {
+        const tbody = document.getElementById('expenseTableBody');
+
+        // Sample data matching the requirements
+        const expenseData = [
+            { department: 'Marketing', accrued: 1200000, budget: 1000000, variance: 20, lead: 'Sarah Chen' },
+            { department: 'Operations', accrued: 4500000, budget: 4000000, variance: 12.5, lead: 'Michael Reynolds' },
+            { department: 'Facilities', accrued: 850000, budget: 750000, variance: 13.3, lead: 'Kevin Patel' }
+        ];
+
+        tbody.innerHTML = '';
+        expenseData.forEach(item => {
+            const row = document.createElement('tr');
+            const varianceClass = item.variance > 15 ? 'variance-negative' : 'variance-warning';
+
+            row.innerHTML = `
+                <td>${item.department}</td>
+                <td>$${(item.accrued / 1000000).toFixed(1)}M</td>
+                <td class="${varianceClass}">$${(item.budget / 1000000).toFixed(1)}M (+${item.variance.toFixed(1)}%)</td>
+                <td>${item.lead}</td>
+                <td>
+                    <button class="btn btn-notification" onclick='initiateNotification(${JSON.stringify({
+                        department: item.department,
+                        lead: item.lead,
+                        accrued: item.accrued,
+                        budget: item.budget,
+                        variance: item.variance
+                    })})'>Send Notification</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    // Revenue Nudge Handler
+    function initiateNudge(data) {
+        currentAction = {
+            type: 'nudge',
+            area: data.area,
+            partner: data.partner,
+            accrued: data.accrued,
+            pipeline: data.pipeline,
+            target: data.target,
+            variance: data.variance
+        };
+        generateEmail('nudge');
+    }
+
+    // Expense Notification Handler
+    function initiateNotification(data) {
+        currentAction = {
+            type: 'notification',
+            department: data.department,
+            lead: data.lead,
+            accrued: data.accrued,
+            budget: data.budget,
+            variance: data.variance
+        };
+        generateEmail('notification');
+    }
+
+    // Generate email content using Claude LLM
+    async function generateEmail(type, isRewrite = false) {
+        const modal = document.getElementById('emailModal');
+        const emailTo = document.getElementById('emailTo');
+        const emailSubject = document.getElementById('emailSubject');
+        const emailContent = document.getElementById('emailContent');
+
+        if (!isRewrite) {
+            modal.classList.add('active');
+            rewriteCount = 0;  // Reset count for new emails
+        }
+
+        // Set recipient based on type
+        if (type === 'nudge') {
+            emailTo.value = `${currentAction.partner}, Office Head`;
+        } else if (type === 'notification') {
+            emailTo.value = currentAction.lead;
+        }
+
+        // Show loading state
+        emailSubject.value = 'AI is crafting your subject line...';
+        emailContent.value = 'AI is composing your email...\n\n⏳ This typically takes 20-30 seconds as we generate personalized, context-aware content.\n\n💡 Tip: The AI is analyzing the data and creating a professional email tailored to your specific situation.';
+
+        // Add animated loading indicator
+        startLoadingAnimation();
+
+        console.log(`Calling /api/generate-email - Type: ${type}, Rewrite count: ${rewriteCount}`);
+
+        try {
+            const response = await fetch('/api/generate-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: type,
+                    context: currentAction,
+                    rewrite_count: rewriteCount
+                })
+            });
+
+            const data = await response.json();
+            console.log('Email API Response:', data);
+
+            // Stop loading animation
+            stopLoadingAnimation();
+
+            // Populate email fields
+            emailSubject.value = data.subject || 'Action Required';
+            emailContent.value = data.body || 'Email content generated';
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            stopLoadingAnimation();
+
+            // Fallback templates if API fails
+            if (type === 'nudge') {
+                emailSubject.value = `Action Required: ${currentAction.area} Revenue Shortfall - Update Needed`;
+                emailContent.value = `Dear ${currentAction.partner} and Office Head,
+
+I hope this message finds you well. I'm reaching out regarding the ${currentAction.area} practice area's current revenue performance.
+
+Current Status:
+• Accrued Revenue: $${(currentAction.accrued / 1000000).toFixed(1)}M
+• Pipeline Revenue: $${(currentAction.pipeline / 1000000).toFixed(1)}M
+• Run-rate Target: $${(currentAction.target / 1000000).toFixed(1)}M
+• Variance: ${currentAction.variance.toFixed(1)}% below target
+
+As the ${currentAction.area} practice is currently ${Math.abs(currentAction.variance).toFixed(1)}% behind the revenue target, we need to develop an action plan to close this gap.
+
+Could you please:
+1. Review the current pipeline and identify any opportunities for acceleration
+2. Provide an updated forecast for the remainder of the period
+3. Outline specific actions being taken to address the shortfall
+4. Schedule a brief sync to discuss recovery strategies
+
+Please provide an update by end of this week. I'm available to support in any way needed to help get us back on track.
+
+Best regards,
+CFO Team`;
+            } else if (type === 'notification') {
+                emailSubject.value = `Budget Alert: ${currentAction.department} Expense Variance Requires Attention`;
+                emailContent.value = `Dear ${currentAction.lead},
+
+I'm writing to bring to your attention that ${currentAction.department} department expenses have exceeded the run-rate budget threshold.
+
+Current Status:
+• Accrued Expenses: $${(currentAction.accrued / 1000000).toFixed(1)}M
+• Run-rate Budget: $${(currentAction.budget / 1000000).toFixed(1)}M
+• Variance: +${currentAction.variance.toFixed(1)}% over budget
+
+As expenses are running ${currentAction.variance.toFixed(1)}% above the budgeted run-rate, we need to review and adjust spending to align with our financial plan.
+
+Required Actions:
+1. Conduct immediate review of all discretionary spending
+2. Identify areas where costs can be reduced or deferred
+3. Provide detailed variance explanation for major cost overruns
+4. Submit revised spending forecast for the remainder of the period
+
+Please provide a comprehensive response within 3 business days outlining your mitigation plan. Finance is available to assist with analysis and planning as needed.
+
+Thank you for your prompt attention to this matter.
+
+Best regards,
+CFO Team`;
+            }
+        }
+    }
+
+    // Loading animation for email generation
+    let loadingInterval;
+    let dotCount = 0;
+
+    function startLoadingAnimation() {
+        dotCount = 0;
+        const messages = [
+            '🔍 Analyzing department data',
+            '📊 Reviewing budget details',
+            '✍️ Crafting personalized content',
+            '✨ Applying professional tone',
+            '📝 Finalizing email draft'
+        ];
+        let messageIndex = 0;
+
+        // Add loading class to disable other inputs
+        const emailContent = document.getElementById('emailContent');
+        if (emailContent) {
+            emailContent.classList.add('loading-indicator');
+        }
+
+        loadingInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            const dots = '.'.repeat(dotCount);
+            const spaces = '\u00A0'.repeat(3 - dotCount); // non-breaking spaces
+
+            // Update message every 5 seconds
+            if (dotCount === 0) {
+                messageIndex = (messageIndex + 1) % messages.length;
+            }
+
+            const bodyText = `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}\n\n💡 This typically takes ~10 seconds for high-quality, personalized content.`;
+            document.getElementById('emailContent').value = bodyText;
+        }, 500);
+    }
+
+    function stopLoadingAnimation() {
+        if (loadingInterval) {
+            clearInterval(loadingInterval);
+            loadingInterval = null;
+        }
+        // Remove loading classes
+        const emailContent = document.getElementById('emailContent');
+        if (emailContent) {
+            emailContent.classList.remove('loading-indicator');
+        }
+    }
+
+    // Regenerate email with AI
+    async function rewriteEmail() {
+        const btn = document.getElementById('regenerateBtn');
+        const originalHTML = btn.innerHTML;
+
+        // Increment rewrite count for variation
+        rewriteCount++;
+        console.log(`Regenerating email - Rewrite count: ${rewriteCount}`);
+
+        // Update button to show it's working
+        btn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Regenerating...';
+        btn.disabled = true;
+
+        // Show loading state for both subject and content
+        document.getElementById('emailSubject').value = 'Regenerating...';
+        document.getElementById('emailContent').value = 'AI is regenerating your email content...';
+
+        // Add a small delay to show the loading state
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            // Call the generate email function with isRewrite=true
+            await generateEmail(currentAction.type, true);
+        } finally {
+            // Restore button state
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    // Send email
+    async function sendEmail() {
+        const subject = document.getElementById('emailSubject').value;
+        const content = document.getElementById('emailContent').value;
+        const to = document.getElementById('emailTo').value;
+
+        try {
+            const response = await fetch('/api/send-workflow-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    to: to,
+                    subject: subject,
+                    content: content,
+                    type: currentAction.type,
+                    context: currentAction
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showConfirmation(currentAction.type === 'nudge' ? 'Nudge sent successfully!' : 'Notification sent successfully!');
+                closeModal();
+            }
+        } catch (error) {
+            // Show success anyway for demo
+            showConfirmation(currentAction.type === 'nudge' ? 'Nudge sent successfully!' : 'Notification sent successfully!');
+            closeModal();
+        }
+    }
+
+    // Close modal
+    function closeModal() {
+        const modal = document.getElementById('emailModal');
+        modal.classList.remove('active');
+        currentAction = null;
+        rewriteCount = 0;
+    }
+
+    // Show confirmation toast
+    function showConfirmation(message) {
+        const toast = document.getElementById('confirmationToast');
+        const toastMessage = document.getElementById('toastMessage');
+        toastMessage.textContent = message;
+        toast.className = 'confirmation-toast show';
+
+        setTimeout(function() {
+            toast.className = 'confirmation-toast';
+        }, 3000);
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('emailModal');
+        if (event.target === modal) {
+            closeModal();
+        }
+    }
+</script>
+{% endblock %}

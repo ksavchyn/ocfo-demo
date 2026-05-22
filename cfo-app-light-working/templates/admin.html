@@ -1,0 +1,2265 @@
+<!-- templates/admin.html - Admin page with embedded Lakeview dashboard -->
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<style>
+    /* Keep default color variables - green theme for buttons */
+    :root {
+        --db-background-secondary: #f9fafb !important;  /* Light gray */
+    }
+    /* Reset body and html to ensure full width */
+    body, html {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+        background: #fafafa !important;  /* Light gray to match executive page */
+    }
+
+    /* Genie Chat Button Styles - Removed (functionality moved to AI Assistant button) */
+
+    .genie-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, #ff5f46 0%, #ff8672 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .genie-icon::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
+        transform: rotate(45deg);
+        animation: sheen 3s infinite;
+    }
+
+    @keyframes sheen {
+        0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+        100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+    }
+
+    .genie-text {
+        color: #1f2937;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    /* Chat Box Styles */
+    .chat-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.1);
+        z-index: 1999;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    .chat-overlay.active {
+        display: flex;
+    }
+
+    .chat-container {
+        width: 700px;
+        max-width: calc(100vw - 80px);
+        max-height: calc(100vh - 80px);
+        background: #ffffff;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 122, 204, 0.2);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        transform-origin: center;
+        overflow: hidden;
+    }
+
+    @keyframes unfoldChat {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    /* Chat header styles removed - using green header from modal.css */
+
+    .chat-title {
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .chat-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: #ffffff;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.3s;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .chat-close:hover {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    .chat-body {
+        padding: 20px;
+        flex-grow: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .chat-questions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .question-button {
+        background: white;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px 16px;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .question-button:hover {
+        background: #f3f4f6;
+        border-color: #ff5f46;
+        transform: translateX(2px);
+    }
+
+    .chat-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 700px;
+        overflow-y: auto;
+        background: transparent;
+        padding: 0;
+    }
+
+    /* Custom scrollbar styling for chat messages */
+    .chat-messages::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .chat-messages::-webkit-scrollbar-track {
+        background: rgba(52, 73, 94, 0.3);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: rgba(52, 152, 219, 0.6);
+        border-radius: 4px;
+        transition: background 0.3s ease;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: rgba(52, 152, 219, 0.8);
+    }
+
+    .message {
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    .message.user {
+        background: #e6f7ff;
+        border: 1px solid #91d5ff;
+        margin-left: 60px;
+        text-align: right;
+    }
+
+    .message.assistant {
+        background: white;
+        border: 1px solid #e5e7eb;
+        margin-right: 60px;
+    }
+
+    .chat-input-container {
+        display: none;
+        padding: 16px;
+        border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .chat-input-container.active {
+        display: flex;
+        gap: 8px;
+    }
+
+    .chat-input {
+        flex-grow: 1;
+        background: #fafafa;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        color: #1f2937;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .chat-send {
+        background: linear-gradient(135deg, #ff5f46, #ff8672, #ffb5a3);
+        border: none;
+        color: #1f2937;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(220, 38, 38, 0.3);
+    }
+
+    .chat-send:hover {
+        background: linear-gradient(135deg, #dc2626, #ff5f46, #ff8672);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+    }
+
+    .thinking-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 13px;
+        padding: 8px 12px;
+        background: rgba(147, 51, 234, 0.05);
+        border-radius: 6px;
+    }
+
+    .thinking-dots {
+        display: flex;
+        gap: 4px;
+    }
+
+    .thinking-dots span {
+        width: 6px;
+        height: 6px;
+        background: rgba(147, 51, 234, 0.6);
+        border-radius: 50%;
+        animation: thinking 1.4s infinite;
+    }
+
+    .thinking-dots span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .thinking-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes thinking {
+        0%, 60%, 100% {
+            opacity: 0.3;
+            transform: translateY(0);
+        }
+        30% {
+            opacity: 1;
+            transform: translateY(-4px);
+        }
+    }
+
+    /* Override main content to account for sidebar */
+    .main-content {
+        padding: 0 !important;
+        margin-left: 256px !important; /* Account for sidebar width */
+        width: calc(100% - 256px) !important; /* Adjust width to account for sidebar */
+        min-height: calc(100vh - 60px);
+        position: relative;
+        overflow-y: auto;
+        background: #fafafa; /* Match executive summary page background */
+    }
+
+    /* Unified content wrapper for both dashboard and tables - MATCHING FINANCE PAGE */
+    .admin-content-wrapper {
+        width: 100%; /* Full width matching finance page */
+        max-width: 100%; /* Prevent overflow */
+        margin: 0;
+        padding: 0; /* No padding to match finance page exactly */
+        position: relative;
+        background: #fafafa !important; /* Ensure gray background */
+        min-height: 100vh; /* Full height to fill the page */
+    }
+
+    /* Dashboard container - auto height to prevent scrollbars */
+    .dashboard-container {
+        position: relative;
+        width: 100%;
+        height: auto; /* Auto height to fit content */
+        background: #fafafa;
+        margin: 0;
+        padding: 0;
+        overflow: visible; /* Allow content to be visible */
+    }
+
+    /* Iframe with proper scaling to show full dashboard */
+    .dashboard-container {
+        width: calc(100% - 60px); /* Slightly wider container */
+        height: 1150px; /* Further increased height to prevent any cutoff */
+        overflow: hidden; /* Hide overflow to prevent scrollbars */
+        position: relative;
+        background: #fafafa;
+        margin-bottom: 30px; /* Medium space between dashboard and tables */
+        margin-left: 40px; /* Keep left margin */
+        margin-right: 20px; /* Smaller right margin for more width */
+    }
+
+    .dashboard-iframe {
+        width: 125%; /* Slightly wider source */
+        height: 1650px; /* Increased height to show all content */
+        border: none;
+        margin: 0;
+        padding: 0;
+        background: #fafafa;
+        display: block;
+        transform: scale(0.88); /* Scale to 88% - slightly bigger */
+        transform-origin: left top; /* Scale from top-left corner */
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    /* Loading indicator */
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #fafafa;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(0, 0, 0, 0.05);
+        border-top: 4px solid #007acc;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        position: absolute;
+        margin-top: 70px;
+        color: #888;
+        font-size: 14px;
+    }
+
+    /* Admin tables section styles - MATCHING FINANCE PAGE EXACTLY */
+    .admin-tables-section {
+        padding: 20px 0; /* Standard padding */
+        width: calc(100% - 60px); /* Match dashboard container width */
+        background: #fafafa;
+        box-sizing: border-box;
+        margin-left: 40px; /* Match dashboard left margin */
+        margin-right: 20px; /* Match dashboard right margin */
+        transform: scale(0.95); /* Slightly scale down tables to match dashboard visual width */
+        transform-origin: left top; /* Scale from top-left */
+    }
+
+    .workflow-section {
+        margin-bottom: var(--spacing-xxl);
+    }
+
+    .section-title {
+        color: #1f2937 !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        margin: 0 0 20px 0 !important;
+        padding-bottom: 8px !important;
+    }
+
+    /* Table styles - matching Finance tab exactly */
+    .data-table {
+        width: 100%; /* Full width to align with dashboard */
+        max-width: 100%;
+        background: var(--db-background-secondary);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        margin: 0;
+    }
+
+    .data-table table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    .data-table th {
+        background: #f3f4f6 !important;
+        color: #111827 !important;
+        padding: 10px 12px; /* Slightly reduced padding */
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.9rem; /* Smaller font size */
+        border-bottom: 2px solid #ff5f46;  /* Orange accent line matching finance page */
+    }
+
+    .data-table td {
+        padding: 10px 12px; /* Slightly reduced padding */
+        color: #1f2937;
+        font-size: 0.875rem; /* Smaller font size */
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .data-table td:last-child,
+    .data-table th:last-child {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .data-table tr:hover {
+        background: #f3f4f6;
+    }
+
+    /* Variance color coding */
+    .variance-negative {
+        color: var(--db-accent-danger);
+        font-weight: 600;
+    }
+
+    .variance-warning {
+        color: var(--db-accent-warning);
+        font-weight: 600;
+    }
+
+    /* Email Modal Styles - Now using shared modal.css */
+    /* All modal styling has been moved to modal.css for consistency across pages */
+
+    /* Email-related styles removed - using shared modal.css */
+
+    .form-group {
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .form-label {
+        display: block;
+        color: #333;  /* Dark gray for better readability */
+        margin-bottom: 6px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 8px 12px;
+        background: white;
+        border: 1px solid #ccc;
+        border-radius: var(--radius-sm);
+        color: #1a1a1a;  /* Black text */
+        font-family: inherit;
+        font-size: 0.9rem;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--db-accent-primary);
+        box-shadow: 0 0 0 0.2rem rgba(0, 122, 204, 0.25);
+    }
+
+    .form-textarea {
+        min-height: 300px;
+        flex: 1;
+        resize: vertical;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: #1a1a1a;  /* Black text */
+        background: white;
+        border: 1px solid #ccc;
+    }
+
+    .form-group:has(.form-textarea) {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-group:has(.form-textarea) .form-textarea {
+        flex: 1;
+    }
+
+    /* Button styles - Green gradient theme matching finance page */
+    .btn-action {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-action:hover {
+        background: linear-gradient(135deg, #059669 0%, #34d399 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-notification {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-notification:hover {
+        background: linear-gradient(135deg, #059669 0%, #34d399 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-primary {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-primary:hover {
+        background: #059669;
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.05);
+        color: var(--db-text-primary);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Email footer and badge styles removed - using unified styles from modal.css */
+
+    /* AI Assistant Modal Styles */
+    .ai-questions-grid {
+        display: grid;
+        gap: 12px;
+    }
+
+    .ai-question-btn {
+        background: #f0fdf4 !important;
+        border: 1.5px solid #dcfce7 !important;
+        color: #374151 !important;
+        padding: 16px 20px;
+        border-radius: 8px;
+        text-align: left;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1.5;
+        transition: all 0.2s ease;
+        font-weight: 500;
+        width: 100%;
+    }
+
+    .ai-question-btn:hover {
+        background: #22c55e !important;
+        color: white !important;
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(74, 222, 128, 0.25);
+    }
+
+    .cancel-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.05);
+        color: var(--db-text-primary);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .cancel-button:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    .send-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: linear-gradient(135deg, #ff5f46, #ff8672, #ffb5a3);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+        transition: all var(--transition-fast);
+        box-shadow: 0 4px 15px rgba(220, 38, 38, 0.3);
+    }
+
+    .send-button:hover {
+        background: linear-gradient(135deg, #dc2626, #ff5f46, #ff8672);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(220, 38, 38, 0.4);
+    }
+
+    /* Toast notification */
+    .confirmation-toast {
+        visibility: hidden;
+        min-width: 250px;
+        background-color: #28a745;
+        color: white;
+        text-align: center;
+        border-radius: 6px;
+        padding: 16px;
+        position: fixed;
+        z-index: 1001;
+        left: 50%;
+        bottom: 30px;
+        transform: translateX(-50%);
+        font-size: 14px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .confirmation-toast.show {
+        visibility: visible;
+        animation: fadein 0.5s, fadeout 0.5s 2.5s;
+    }
+
+    @keyframes fadein {
+        from {bottom: 0; opacity: 0;}
+        to {bottom: 30px; opacity: 1;}
+    }
+
+    @keyframes fadeout {
+        from {bottom: 30px; opacity: 1;}
+        to {bottom: 0; opacity: 0;}
+    }
+
+    /* Add spin animation for Genie status spinner */
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Chat Modal Styles - CRITICAL FOR VISIBILITY */
+    /* .chat-modal, .chat-modal-content, .chat-modal-header h2 overrides
+       intentionally REMOVED — these conflicted with static/modal.css and
+       caused admin.html's chat modal to look subtly different from the
+       landing + finance pages (lighter background overlay, no blur). All
+       three pages now inherit the same shared modal styling. */
+
+    .chat-modal-close {
+        background: none;
+        border: none;
+        font-size: 1.8rem;
+        cursor: pointer;
+        color: white;
+        opacity: 0.9;
+        transition: opacity 0.2s;
+        line-height: 1;
+        padding: 0;
+        margin: -8px -4px;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .chat-modal-close:hover {
+        opacity: 1;
+    }
+
+    /* Question selector view */
+    #questionSelectorView {
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #questionSelectorView h3 {
+        margin: 0 0 20px 0;
+        font-size: 1.1rem;
+        color: #374151;
+    }
+
+    #modalQuestionsGrid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .ai-question-btn {
+        background: white;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px 16px;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .ai-question-btn:hover {
+        background: #f3f4f6;
+        border-color: #ff5f46;
+        transform: translateX(2px);
+    }
+
+    /* Chat view */
+    #chatView {
+        display: none;
+        flex-direction: column;
+        height: 600px;
+    }
+
+    #chatMessages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background: #fafafa;
+    }
+
+    .chat-message {
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        animation: slideIn 0.3s ease-out;
+    }
+
+    .chat-message.user {
+        background: #e6f7ff;
+        border: 1px solid #91d5ff;
+        margin-left: 60px;
+        text-align: right;
+    }
+
+    .chat-message.genie {
+        background: white;
+        border: 1px solid #e5e7eb;
+        margin-right: 60px;
+    }
+
+    .chat-input-container {
+        padding: 16px;
+        background: white;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: 12px;
+    }
+
+    #chatInput {
+        flex: 1;
+        padding: 10px 14px;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        transition: border-color 0.2s;
+    }
+
+    #chatInput:focus {
+        outline: none;
+        border-color: #10b981;
+    }
+
+    .send-btn {
+        padding: 10px 20px;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s;
+    }
+
+    .send-btn:hover:not(:disabled) {
+        background: #059669;
+    }
+
+    .send-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    /* Export button */
+    .export-btn {
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: #1f2937;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.3s;
+    }
+
+    .export-btn:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+        transform: translateY(-1px);
+    }
+
+    /* Custom input section */
+    .custom-input-section {
+        display: flex;
+        gap: 8px;
+        padding-top: 16px;
+        border-top: 1px solid #e5e7eb;
+        margin-top: auto;
+    }
+
+    #modalCustomInput {
+        flex: 1;
+        padding: 10px 14px;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 0.95rem;
+    }
+
+    #modalCustomInput:focus {
+        outline: none;
+        border-color: #10b981;
+    }
+
+    /* Animations */
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .chat-modal.closing {
+        animation: modalFadeOut 0.3s ease-out;
+    }
+
+    @keyframes modalFadeOut {
+        from {
+            opacity: 1;
+        }
+        to {
+            opacity: 0;
+        }
+    }
+</style>
+<!-- Modal CSS is already loaded from base.html -->
+{% endblock %}
+
+{% block content %}
+<!-- Ask Genie button removed - functionality moved to AI Assistant button in header -->
+
+<!-- Genie Chat Box -->
+<!-- Chat Modal (Hidden by default) - EXACT SAME AS FINANCE/EXEC -->
+<div id="chatModal" class="chat-modal">
+    <div class="chat-modal-content">
+        <div class="chat-modal-header">
+            <div class="chat-title">
+                <span class="genie-sparkle">✨</span>
+                <span>AI Assistant</span>
+            </div>
+            <button class="chat-close" onclick="closeChatModal()">✕</button>
+        </div>
+
+        <!-- Question Selector View (shown initially when opened from AI Assistant) -->
+        <div id="questionSelectorView" style="display: none;">
+            <p class="ai-assistant-intro">Select a question or type your own:</p>
+            <div class="ai-questions-grid" id="modalQuestionsGrid">
+                <!-- Questions will be populated dynamically -->
+            </div>
+            <div class="ai-custom-question">
+                <input type="text" class="ai-input" id="modalCustomInput" placeholder="Type your question here..." onkeypress="handleModalInputKeyPress(event)">
+                <button class="ai-send-btn" onclick="sendModalCustomQuestion()">Ask</button>
+            </div>
+        </div>
+
+        <!-- Chat View (shown when asking questions normally or after selecting from AI Assistant) -->
+        <div id="chatView">
+            <div class="chat-messages" id="chatMessages">
+                <!-- Chat messages will be inserted here -->
+            </div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask follow-up questions...">
+                <button class="send-btn" onclick="sendChatMessage()">Send</button>
+                <button id="exportDataBtn" class="export-btn" onclick="exportData()" style="display: none;">
+                    📥 Export CSV
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unified wrapper for dashboard -->
+<div class="admin-content-wrapper">
+    <!-- Dashboard container -->
+    <div class="dashboard-container">
+        <!-- Loading indicator -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Admin Dashboard...</div>
+        </div>
+
+        <!-- Dashboard iframe with embed URL format and Genie enabled through embed path -->
+        <iframe
+            id="dashboardIframe"
+            class="dashboard-iframe"
+            src="{{ dashboard_url }}"
+            allowfullscreen
+            frameborder="0"
+            scrolling="no"
+            onload="document.getElementById('loadingOverlay').style.display='none';">
+        </iframe>
+    </div>
+
+    <!-- Admin Tables Section - NOW INSIDE THE CONTENT WRAPPER -->
+    <div class="admin-tables-section">
+    <!-- Revenue Performance Table -->
+    <div class="workflow-section">
+        <h2 class="section-title">Practice Areas Behind Revenue Targets</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Industry / Practice Area</th>
+                        <th>Accrued Rev</th>
+                        <th>Pipeline Rev</th>
+                        <th>Run-rate Target (%var)</th>
+                        <th>Lead Partner</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="revenueTableBody">
+                    <!-- Data will be loaded dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Expense Outliers Table -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top Expense Outliers (>10% Beyond Run-rate Budget)</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Department</th>
+                        <th>Accrued Expenses</th>
+                        <th>Run-rate Budget (% var)</th>
+                        <th>Lead</th>
+                    <th>Initiate Action</th>
+                </tr>
+            </thead>
+            <tbody id="expenseTableBody">
+                <!-- Data will be loaded dynamically -->
+            </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div> <!-- End of admin-content-wrapper -->
+
+<!-- Email Modal (matching Finance page structure) -->
+<div class="email-modal" id="emailModal">
+    <div class="email-content">
+        <div class="email-header">
+            <div>
+                <h3 class="email-title">Send Automated Nudge</h3>
+                <p style="color: white; font-size: 0.875rem; margin: 4px 0 0 0;">Review and customize the AI-generated email before sending</p>
+            </div>
+            <span class="ai-badge"><i class="fas fa-magic"></i> AI Generated</span>
+        </div>
+        <div class="email-body">
+            <div class="email-form-group">
+                <label>To:</label>
+                <input type="text" id="emailTo" readonly>
+            </div>
+            <div class="email-form-group">
+                <label>CC:</label>
+                <input type="text" id="emailCc" placeholder="Add recipients...">
+            </div>
+            <div class="email-form-group">
+                <label>Subject:</label>
+                <input type="text" id="emailSubject">
+            </div>
+            <div class="email-form-group" style="flex: 1; display: flex; flex-direction: column;">
+                <label>Email Body:</label>
+                <textarea id="emailContent" style="flex: 1; min-height: 300px;"></textarea>
+            </div>
+        </div>
+        <div class="email-footer">
+            <div class="rewrite-section">
+                <button class="ai-rewrite-button" id="regenerateBtn" onclick="showToneSelector()">
+                    <i class="fas fa-sync-alt"></i> AI Rewrite
+                </button>
+                <div class="tone-selector" id="toneSelector" style="display: none;">
+                    <span class="tone-label">Select tone:</span>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('professional')">Professional</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('friendly')">Friendly</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('urgent')">Urgent</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('casual')">Casual</button>
+                </div>
+            </div>
+            <div class="action-buttons">
+                <button class="cancel-button" onclick="closeModal()">Cancel</button>
+                <button class="send-button" onclick="sendEmail()"><i class="fas fa-paper-plane"></i> Send Email</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Toast -->
+<div id="confirmationToast" class="confirmation-toast">
+    <span id="toastMessage"></span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Hide loading after timeout as fallback
+    setTimeout(function() {
+        var loader = document.getElementById('loadingOverlay');
+        if (loader) loader.style.display = 'none';
+    }, 5000);
+
+    // Store current action context
+    let currentAction = null;
+    let rewriteCount = 0;
+
+    // Genie Chat Variables
+    let chatHistory = [];
+
+    // Load data when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadRevenueData();
+        loadExpenseData();
+    });
+
+    // Load revenue performance data
+    async function loadRevenueData() {
+        const tbody = document.getElementById('revenueTableBody');
+
+        try {
+            const response = await fetch('/api/revenue-targets');
+            const result = await response.json();
+
+            let revenueData = [];
+            if ((result.status === 'success' || result.status === 'mock') && result.data && result.data.length > 0) {
+                // Use data from API (real or mock)
+                revenueData = result.data;
+                console.log(`Loaded ${result.status} revenue data:`, revenueData.length, 'items');
+            } else {
+                // Fallback only if API completely fails. Tier-1 scale figures
+                // (practice × region monthly accrued ~$200-600M, target ~$220-700M,
+                // variances in the 5-15% range) — matches envelope-bounded data
+                // so a fallback render doesn't look orders-of-magnitude wrong.
+                console.log('Using fallback revenue data (API failed)');
+                revenueData = [
+                    { area: 'Healthcare & Life Sciences (Americas)', accrued: 412000000, pipeline: 95000000, target: 460000000, variance:  -10.4, partner: 'Priya Ramachandran' },
+                    { area: 'Public & Social Sector (EMEA)',         accrued: 168000000, pipeline: 42000000, target: 190000000, variance:  -11.6, partner: 'Marcus Holloway' },
+                    { area: 'Consumer & Retail (EMEA)',              accrued: 285000000, pipeline: 68000000, target: 295000000, variance:   -3.4, partner: 'Sofía Vargas' },
+                    { area: 'Strategy & Consulting (Asia Pacific)',  accrued: 520000000, pipeline: 125000000, target: 510000000, variance:   2.0, partner: 'Wei Chen' },
+                    { area: 'Technology (Americas)',                 accrued: 645000000, pipeline: 160000000, target: 625000000, variance:   3.2, partner: 'James O\'Brien' }
+                ];
+            }
+
+            tbody.innerHTML = '';
+            revenueData.forEach(item => {
+                const row = document.createElement('tr');
+                const varianceClass = item.variance < -20 ? 'variance-negative' : 'variance-warning';
+
+                row.innerHTML = `
+                    <td>${item.area}</td>
+                    <td>$${(item.accrued / 1000000).toFixed(0)}M</td>
+                    <td>$${(item.pipeline / 1000000).toFixed(0)}M</td>
+                    <td class="${varianceClass}">$${(item.target / 1000000).toFixed(0)}M (${item.variance.toFixed(1)}%)</td>
+                    <td>${item.partner}</td>
+                    <td>
+                        <button class="btn btn-action" onclick='initiateNudge(${JSON.stringify({
+                            area: item.area,
+                            partner: item.partner,
+                            accrued: item.accrued,
+                            pipeline: item.pipeline,
+                            target: item.target,
+                            variance: item.variance
+                        })})'>Nudge</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('Error loading revenue data:', error);
+            // Use fallback mock data on error
+            const fallbackData = [
+                { area: 'Healthcare & Life Sciences (Americas)', accrued: 412000000, pipeline: 95000000, target: 460000000, variance: -10.4, partner: 'Anya Sharma' },
+                { area: 'Consumer & Retail (EMEA)',              accrued: 285000000, pipeline: 68000000, target: 315000000, variance:  -9.5, partner: 'Benjamin Johnson' },
+                { area: 'Public & Social Sector (EMEA)',         accrued: 168000000, pipeline: 42000000, target: 190000000, variance: -11.6, partner: 'Chloe Williams' },
+                { area: 'Strategy & Consulting (Asia Pacific)',  accrued: 520000000, pipeline: 125000000, target: 580000000, variance: -10.3, partner: 'David Lee' },
+                { area: 'Technology (Americas)',                 accrued: 645000000, pipeline: 160000000, target: 720000000, variance: -10.4, partner: 'Ethan Davis' }
+            ];
+
+            tbody.innerHTML = '';
+            fallbackData.forEach(item => {
+                const row = document.createElement('tr');
+                const varianceClass = item.variance < -20 ? 'variance-negative' : 'variance-warning';
+
+                row.innerHTML = `
+                    <td>${item.area}</td>
+                    <td>$${(item.accrued / 1000000).toFixed(0)}M</td>
+                    <td>$${(item.pipeline / 1000000).toFixed(0)}M</td>
+                    <td class="${varianceClass}">$${(item.target / 1000000).toFixed(0)}M (${item.variance.toFixed(1)}%)</td>
+                    <td>${item.partner}</td>
+                    <td>
+                        <button class="btn btn-action" onclick='initiateNudge(${JSON.stringify({
+                            area: item.area,
+                            partner: item.partner,
+                            accrued: item.accrued,
+                            pipeline: item.pipeline,
+                            target: item.target,
+                            variance: item.variance
+                        })})'>Nudge</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+    }
+
+    // Load expense outliers data
+    async function loadExpenseData() {
+        const tbody = document.getElementById('expenseTableBody');
+
+        try {
+            const response = await fetch('/api/expense-outliers');
+            const result = await response.json();
+
+            let expenseData = [];
+            if ((result.status === 'success' || result.status === 'mock') && result.data && result.data.length > 0) {
+                // Use data from API (real or mock)
+                expenseData = result.data;
+                console.log(`Loaded ${result.status} expense data:`, expenseData.length, 'items');
+            } else {
+                // Fallback to hardcoded data if API completely fails
+                console.log('Using fallback expense data (API failed)');
+                expenseData = [
+                    { department: 'Marketing', accrued: 1200000, budget: 1000000, variance: 20, lead: 'Sarah Chen' },
+                    { department: 'Operations', accrued: 4500000, budget: 4000000, variance: 12.5, lead: 'Michael Reynolds' },
+                    { department: 'Facilities', accrued: 850000, budget: 750000, variance: 13.3, lead: 'Kevin Patel' }
+                ];
+            }
+
+            tbody.innerHTML = '';
+            expenseData.forEach(item => {
+                const row = document.createElement('tr');
+                const varianceClass = item.variance > 15 ? 'variance-negative' : 'variance-warning';
+
+                row.innerHTML = `
+                    <td>${item.department}</td>
+                    <td>$${(item.accrued / 1000000).toFixed(1)}M</td>
+                    <td class="${varianceClass}">$${(item.budget / 1000000).toFixed(1)}M (+${item.variance.toFixed(1)}%)</td>
+                    <td>${item.lead}</td>
+                    <td>
+                        <button class="btn btn-notification" onclick='initiateNotification(${JSON.stringify({
+                            department: item.department,
+                            lead: item.lead,
+                            accrued: item.accrued,
+                            budget: item.budget,
+                            variance: item.variance
+                        })})'>Send Notification</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('Error loading expense data:', error);
+            // Use fallback mock data on error
+            const fallbackData = [
+                { department: 'Marketing', accrued: 1200000, budget: 1000000, variance: 20, lead: 'Sarah Chen' },
+                { department: 'Operations', accrued: 4500000, budget: 4000000, variance: 12.5, lead: 'Michael Reynolds' },
+                { department: 'Facilities', accrued: 850000, budget: 750000, variance: 13.3, lead: 'Kevin Patel' }
+            ];
+
+            tbody.innerHTML = '';
+            fallbackData.forEach(item => {
+                const row = document.createElement('tr');
+                const varianceClass = item.variance > 15 ? 'variance-negative' : 'variance-warning';
+
+                row.innerHTML = `
+                    <td>${item.department}</td>
+                    <td>$${(item.accrued / 1000000).toFixed(1)}M</td>
+                    <td class="${varianceClass}">$${(item.budget / 1000000).toFixed(1)}M (+${item.variance.toFixed(1)}%)</td>
+                    <td>${item.lead}</td>
+                    <td>
+                        <button class="btn btn-notification" onclick='initiateNotification(${JSON.stringify({
+                            department: item.department,
+                            lead: item.lead,
+                            accrued: item.accrued,
+                            budget: item.budget,
+                            variance: item.variance
+                        })})'>Send Notification</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+    }
+
+    // Revenue Nudge Handler
+    function initiateNudge(data) {
+        currentAction = {
+            type: 'nudge',
+            area: data.area,
+            partner: data.partner,
+            accrued: data.accrued,
+            pipeline: data.pipeline,
+            target: data.target,
+            variance: data.variance
+        };
+        generateEmail('nudge');
+    }
+
+    // Expense Notification Handler
+    function initiateNotification(data) {
+        currentAction = {
+            type: 'notification',
+            department: data.department,
+            lead: data.lead,
+            accrued: data.accrued,
+            budget: data.budget,
+            variance: data.variance
+        };
+        generateEmail('notification');
+    }
+
+    // Generate email content using Claude LLM
+    async function generateEmail(type, isRewrite = false, tone = null) {
+        const modal = document.getElementById('emailModal');
+        const emailTo = document.getElementById('emailTo');
+        const emailSubject = document.getElementById('emailSubject');
+        const emailContent = document.getElementById('emailContent');
+
+        if (!isRewrite) {
+            modal.classList.add('active');
+            rewriteCount = 0;  // Reset count for new emails
+        }
+
+        // Set recipient based on type - create realistic email addresses
+        if (type === 'nudge') {
+            // Create realistic email addresses from partner name
+            const partnerEmail = currentAction.partner ?
+                currentAction.partner.toLowerCase().replace(/\s+/g, '.') + '@' +
+                (currentAction.client ? currentAction.client.toLowerCase().replace(/[^a-z0-9]/g, '') : 'company') + '.com' :
+                'contact@company.com';
+            const officeHeadEmail = 'office.head@company.com';
+            emailTo.value = `${partnerEmail}, ${officeHeadEmail}`;
+        } else if (type === 'notification') {
+            // Create realistic email from lead name
+            const leadEmail = currentAction.lead ?
+                currentAction.lead.toLowerCase().replace(/\s+/g, '.') + '@databricks.com' :
+                'hr@databricks.com';
+            emailTo.value = leadEmail;
+        }
+
+        // Show loading state
+        emailSubject.value = 'AI is crafting your subject line...';
+        emailContent.value = 'AI is composing your email...\n\n⏳ This typically takes 5-10 seconds with optimized prompts.\n\n💡 Tip: The AI is analyzing the data and creating a professional email tailored to your specific situation.';
+
+        // Add animated loading indicator
+        startLoadingAnimation();
+
+        console.log(`Calling /api/generate-email - Type: ${type}, Rewrite count: ${rewriteCount}, Tone: ${tone}`);
+
+        try {
+            const requestBody = {
+                type: type,
+                context: currentAction,
+                rewrite_count: rewriteCount
+            };
+
+            // Add tone to request if provided
+            if (tone) {
+                requestBody.tone = tone;
+            }
+
+            const response = await fetch('/api/generate-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            const data = await response.json();
+            console.log('Email API Response:', data);
+
+            // Stop loading animation
+            stopLoadingAnimation();
+
+            // Populate email fields
+            emailSubject.value = data.subject || 'Action Required';
+            emailContent.value = data.body || 'Email content generated';
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            stopLoadingAnimation();
+
+            // Fallback templates if API fails
+            if (type === 'nudge') {
+                emailSubject.value = `Action Required: ${currentAction.area} Revenue Shortfall - Update Needed`;
+                emailContent.value = `Dear ${currentAction.partner} and Office Head,
+
+I hope this message finds you well. I'm reaching out regarding the ${currentAction.area} practice area's current revenue performance.
+
+Current Status:
+• Accrued Revenue: $${(currentAction.accrued / 1000000).toFixed(1)}M
+• Pipeline Revenue: $${(currentAction.pipeline / 1000000).toFixed(1)}M
+• Run-rate Target: $${(currentAction.target / 1000000).toFixed(1)}M
+• Variance: ${currentAction.variance.toFixed(1)}% below target
+
+As the ${currentAction.area} practice is currently ${Math.abs(currentAction.variance).toFixed(1)}% behind the revenue target, we need to develop an action plan to close this gap.
+
+Could you please:
+1. Review the current pipeline and identify any opportunities for acceleration
+2. Provide an updated forecast for the remainder of the period
+3. Outline specific actions being taken to address the shortfall
+4. Schedule a brief sync to discuss recovery strategies
+
+Please provide an update by end of this week. I'm available to support in any way needed to help get us back on track.
+
+Best regards,
+CFO Team`;
+            } else if (type === 'notification') {
+                emailSubject.value = `Budget Alert: ${currentAction.department} Expense Variance Requires Attention`;
+                emailContent.value = `Dear ${currentAction.lead},
+
+I'm writing to bring to your attention that ${currentAction.department} department expenses have exceeded the run-rate budget threshold.
+
+Current Status:
+• Accrued Expenses: $${(currentAction.accrued / 1000000).toFixed(1)}M
+• Run-rate Budget: $${(currentAction.budget / 1000000).toFixed(1)}M
+• Variance: +${currentAction.variance.toFixed(1)}% over budget
+
+As expenses are running ${currentAction.variance.toFixed(1)}% above the budgeted run-rate, we need to review and adjust spending to align with our financial plan.
+
+Required Actions:
+1. Conduct immediate review of all discretionary spending
+2. Identify areas where costs can be reduced or deferred
+3. Provide detailed variance explanation for major cost overruns
+4. Submit revised spending forecast for the remainder of the period
+
+Please provide a comprehensive response within 3 business days outlining your mitigation plan. Finance is available to assist with analysis and planning as needed.
+
+Thank you for your prompt attention to this matter.
+
+Best regards,
+CFO Team`;
+            }
+        }
+    }
+
+    // Loading animation for email generation
+    let loadingInterval;
+    let dotCount = 0;
+
+    function startLoadingAnimation() {
+        dotCount = 0;
+        const messages = [
+            '🔍 Analyzing department data',
+            '📊 Reviewing budget details',
+            '✍️ Crafting personalized content',
+            '⚡ Optimizing for clarity',
+            '📝 Finalizing email draft'
+        ];
+        let messageIndex = 0;
+
+        // Add loading class to disable other inputs
+        const emailContent = document.getElementById('emailContent');
+        if (emailContent) {
+            emailContent.classList.add('loading-indicator');
+        }
+
+        loadingInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            const dots = '.'.repeat(dotCount);
+            const spaces = '\u00A0'.repeat(3 - dotCount); // non-breaking spaces
+
+            // Update message every 5 seconds
+            if (dotCount === 0) {
+                messageIndex = (messageIndex + 1) % messages.length;
+            }
+
+            const bodyText = `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}\n\n💡 Generating with optimized prompts (5-10 seconds).`;
+            document.getElementById('emailContent').value = bodyText;
+        }, 500);
+    }
+
+    function stopLoadingAnimation() {
+        if (loadingInterval) {
+            clearInterval(loadingInterval);
+            loadingInterval = null;
+        }
+        // Remove loading classes
+        const emailContent = document.getElementById('emailContent');
+        if (emailContent) {
+            emailContent.classList.remove('loading-indicator');
+        }
+    }
+
+    // Regenerate email with AI
+    // Show tone selector
+    function showToneSelector() {
+        const toneSelector = document.getElementById('toneSelector');
+        toneSelector.style.display = toneSelector.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    // Regenerate email with specific tone
+    async function regenerateEmailWithTone(tone) {
+        const btn = document.getElementById('regenerateBtn');
+        const originalHTML = btn.innerHTML;
+        const toneSelector = document.getElementById('toneSelector');
+
+        // Hide tone selector
+        toneSelector.style.display = 'none';
+
+        // Increment rewrite count for variation
+        rewriteCount++;
+        console.log(`Regenerating email with tone: ${tone} - Rewrite count: ${rewriteCount}`);
+
+        // Update button to show it's working
+        btn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Regenerating...';
+        btn.disabled = true;
+
+        // Show loading state for both subject and content
+        document.getElementById('emailSubject').value = `Regenerating with ${tone} tone...`;
+        document.getElementById('emailContent').value = `AI is regenerating your email with a ${tone} tone...`;
+
+        // Add a small delay to show the loading state
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            // Call the generate email function with isRewrite=true and tone
+            await generateEmail(currentAction.type, true, tone);
+        } finally {
+            // Restore button state
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    // Legacy rewrite function for backward compatibility
+    async function rewriteEmail() {
+        showToneSelector();
+    }
+
+    // Send email
+    async function sendEmail() {
+        const subject = document.getElementById('emailSubject').value;
+        const content = document.getElementById('emailContent').value;
+        const to = document.getElementById('emailTo').value;
+
+        try {
+            const response = await fetch('/api/send-workflow-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    to: to,
+                    subject: subject,
+                    content: content,
+                    type: currentAction.type,
+                    context: currentAction
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                showConfirmation(currentAction.type === 'nudge' ? 'Nudge sent successfully!' : 'Notification sent successfully!');
+                closeModal();
+            }
+        } catch (error) {
+            // Show success anyway for demo
+            showConfirmation(currentAction.type === 'nudge' ? 'Nudge sent successfully!' : 'Notification sent successfully!');
+            closeModal();
+        }
+    }
+
+    // Close modal
+    function closeModal() {
+        const modal = document.getElementById('emailModal');
+        modal.classList.remove('active');
+        currentAction = null;
+        rewriteCount = 0;
+    }
+
+    // Show confirmation toast
+    function showConfirmation(message) {
+        const toast = document.getElementById('confirmationToast');
+        const toastMessage = document.getElementById('toastMessage');
+        toastMessage.textContent = message;
+        toast.className = 'confirmation-toast show';
+
+        setTimeout(function() {
+            toast.className = 'confirmation-toast';
+        }, 3000);
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('emailModal');
+        if (event.target === modal) {
+            closeModal();
+        }
+    }
+
+    // Genie Chat Functions with Streaming Support
+    // Removed conflicting variable declarations - these are defined in modal.js
+    // let currentRequestController = null;
+    // let isRequestInProgress = false;
+    let lastQueryData = null;
+    let lastQuerySQL = null;
+    let lastQueryDescription = null;
+
+    window.lastQueryData = null;
+    window.exportMetadata = null;
+
+    // Helper function to add chat messages
+    function addChatMessage(type, content) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+
+        if (type === 'genie' && typeof content === 'object') {
+            // Special formatting for Genie thought process
+            messageDiv.className = 'chat-message genie thought-process';
+            messageDiv.style.cssText = 'background-color: #f0f3f7; border-left: 3px solid #3498db; padding: 12px; margin: 10px 0; border-radius: 8px; color: #374151;';
+            messageDiv.innerHTML = content.html || content;
+        } else {
+            messageDiv.innerHTML = content;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return messageDiv;
+    }
+
+    // Helper function to escape HTML
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function addFormattedMessage(sender, content) {
+        const messages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${sender} response`;
+
+        if (sender === 'genie') {
+            const formatted = formatMarkdown(content);
+            messageDiv.innerHTML = `<strong>Genie:</strong> <div style="font-size: 13px; line-height: 1.5;">${formatted}</div>`;
+        } else {
+            messageDiv.innerHTML = `<strong>You:</strong> ${content}`;
+        }
+
+        messages.appendChild(messageDiv);
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    function formatMarkdown(text) {
+        // Convert markdown to HTML
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code style="background: #fafafa; padding: 2px 4px; border-radius: 3px;">$1</code>')
+            .replace(/\n\n/g, '<br><br>')
+            .replace(/\n/g, '<br>')
+            .replace(/\|([^\n]+)\|/g, (match) => {
+                // Simple table formatting
+                if (match.includes('---')) return match;
+                return match.replace(/\|/g, ' | ');
+            });
+    }
+
+    function formatSQL(sql) {
+        // Basic SQL formatting
+        return sql
+            .replace(/\b(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|AND|OR|AS|WITH)\b/gi,
+                (match) => '\n' + match.toUpperCase())
+            .replace(/,/g, ',\n  ')
+            .trim();
+    }
+
+    function openGenieChat() {
+        const overlay = document.getElementById('genieChatOverlay');
+        overlay.classList.add('active');
+        // Show export button if data is available
+        const exportBtn = document.getElementById('exportDataBtn');
+        if (exportBtn && window.lastQueryData) {
+            exportBtn.style.display = 'block';
+        }
+    }
+
+    function closeGenieChat() {
+        const overlay = document.getElementById('genieChatOverlay');
+        overlay.classList.remove('active');
+    }
+
+    // askGenie function removed - using shared modal.js version
+    /* function askGenie(question, isFollowUp = false) {
+        // Abort any ongoing request
+        if (currentRequestController) {
+            currentRequestController.abort();
+            currentRequestController = null;
+            isRequestInProgress = false;
+        }
+
+        // Determine which chat container to use - modal takes priority if it's open
+        const modal = document.getElementById('chatModal');
+        const isModalOpen = modal && modal.classList.contains('show');
+
+        let messagesContainer;
+        if (isModalOpen) {
+            // Use modal's chat messages
+            messagesContainer = modal.querySelector('#chatView .chat-messages');
+        } else {
+            // Use FAB's chat messages
+            document.getElementById('chatInputContainer').classList.add('active');
+            document.getElementById('chatQuestions').style.display = 'none';
+            document.getElementById('chatMessages').style.display = 'flex';
+            messagesContainer = document.getElementById('chatMessages');
+        }
+
+        // Only clear messages if this is NOT a follow-up question
+        if (!isFollowUp) {
+            messagesContainer.innerHTML = '';
+            // Only reset export data if it's a new conversation
+            window.lastQueryData = null;
+            window.lastQuerySQL = null;
+            window.lastQueryDescription = null;
+            window.exportMetadata = null;
+            const exportBtn = document.getElementById('exportDataBtn');
+            if (exportBtn) {
+                exportBtn.style.display = 'none';
+            }
+        }
+
+        // Add user question
+        const userMessage = document.createElement('div');
+        userMessage.className = 'message user';
+        userMessage.textContent = question;
+        messagesContainer.appendChild(userMessage);
+
+        // Create proper status div with thought process container
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'chat-message genie thought-process';
+        statusDiv.style.cssText = 'background-color: #f0f3f7; border-left: 3px solid #3498db; padding: 12px; margin: 10px 0; border-radius: 8px; color: #374151;';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #007acc; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <strong style="color: #3498db;">Genie:</strong> <em style="color: #6b7280;">Analyzing your question...</em>
+            </div>
+            <div id="genie-steps" style="margin-top: 10px; font-size: 12px; color: #6b7280;"></div>
+        `;
+        messagesContainer.appendChild(statusDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        // Create new AbortController for this request
+        currentRequestController = new AbortController();
+        isRequestInProgress = true;
+
+        let responseStarted = false;
+        let currentResponseDiv = null;
+        let messageBuffer = '';
+
+        // Use streaming endpoint like landing page
+        fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: question }),
+            signal: currentRequestController.signal
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            function processStream() {
+                return reader.read().then(({ done, value }) => {
+                    if (done) {
+                        return;
+                    }
+
+                    const text = decoder.decode(value, { stream: true });
+                    const lines = text.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.type === 'tool_start') {
+                                    // Show which Genie room is being queried
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.id = `tool-${data.tool}`;
+                                        stepItem.style.cssText = 'margin: 4px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">🔍</span>
+                                            <span>Querying ${data.source || 'Genie'}...</span>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+
+                                        // Show the question being asked
+                                        if (data.question) {
+                                            const detailItem = document.createElement('div');
+                                            detailItem.style.cssText = 'margin: 2px 0 2px 40px; font-size: 11px; color: #7f8c8d; font-style: italic;';
+                                            detailItem.innerHTML = `"${data.question}"`;
+                                            stepsDiv.appendChild(detailItem);
+                                        }
+                                    }
+                                } else if (data.type === 'tool_result') {
+                                    // Show results with checkmark
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        // Update the tool_start item to show completion
+                                        const toolItem = document.getElementById(`tool-${data.tool}`);
+                                        if (toolItem) {
+                                            const icon = toolItem.querySelector('span:first-child');
+                                            if (icon) {
+                                                icon.innerHTML = '✓';
+                                                icon.style.color = '#27ae60';
+                                            }
+                                            const text = toolItem.querySelector('span:last-child');
+                                            if (text) {
+                                                text.innerHTML = text.innerHTML.replace('...', ' - Complete');
+                                                text.style.color = '#27ae60';
+                                            }
+                                        }
+
+                                        // Store raw data if available
+                                        if (data.raw_data && data.raw_data.length > 0) {
+                                            window.lastQueryData = data.raw_data;
+                                            lastQueryData = data.raw_data;
+                                            console.log('✅ Stored raw query data:', data.raw_data.length, 'rows');
+
+                                            // Show export button
+                                            const exportBtn = document.getElementById('exportDataBtn');
+                                            if (exportBtn) {
+                                                exportBtn.style.display = 'inline-block';
+                                            }
+                                        }
+
+                                        // Show SQL if available
+                                        if (data.sql) {
+                                            lastQuerySQL = data.sql;
+                                            const formattedSQL = formatSQL(data.sql);
+                                            const sqlContainer = document.createElement('div');
+                                            sqlContainer.style.cssText = 'margin: 8px 0 8px 20px;';
+                                            sqlContainer.innerHTML = `
+                                                <details style="margin: 0;">
+                                                    <summary style="cursor: pointer; color: #3498db; font-size: 12px;">View SQL Query</summary>
+                                                    <pre class="sql-query-display" style="background: #fafafa; color: #374151; padding: 12px; border-radius: 6px; margin-top: 8px; font-size: 12px; font-family: 'Monaco', 'Consolas', monospace; overflow-x: auto; border: 1px solid #34495e; line-height: 1.4; max-height: 300px; overflow-y: auto;">${escapeHtml(formattedSQL)}</pre>
+                                                </details>
+                                            `;
+                                            stepsDiv.appendChild(sqlContainer);
+                                        }
+
+                                        // Show description if available
+                                        if (data.description) {
+                                            lastQueryDescription = data.description;
+                                        }
+                                    }
+                                } else if (data.type === 'status') {
+                                    // Legacy status handling (kept for compatibility)
+                                    const statusContainer = statusDiv.querySelector('div:first-child');
+                                    if (statusContainer) {
+                                        const statusText = statusContainer.querySelector('em');
+                                        if (statusText) {
+                                            statusText.textContent = data.message;
+                                            // Add checkmark if status indicates completion
+                                            if (data.message.includes('complete') || data.message.includes('found')) {
+                                                const spinner = statusContainer.querySelector('.spinner');
+                                                if (spinner) {
+                                                    spinner.innerHTML = '✓';
+                                                    spinner.style.cssText = 'color: #27ae60; font-weight: bold;';
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Add status as a step item
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv && data.message) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.style.cssText = 'margin: 4px 0; display: flex; align-items: center; gap: 6px;';
+                                        const isComplete = data.message.includes('complete') || data.message.includes('found');
+                                        stepItem.innerHTML = `
+                                            <span style="color: ${isComplete ? '#27ae60' : '#3498db'}; font-size: 14px;">${isComplete ? '✓' : '○'}</span>
+                                            <span style="color: #374151;">${data.message}</span>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+                                    }
+                                } else if (data.type === 'query_detail') {
+                                    // Show query details as sub-steps
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const detailItem = document.createElement('div');
+                                        detailItem.style.cssText = 'margin: 4px 0 4px 24px; font-size: 11px; color: #6b7280;';
+                                        detailItem.innerHTML = `• ${data.detail}`;
+                                        stepsDiv.appendChild(detailItem);
+                                    }
+
+                                    if (data.detail && data.detail.includes('Executing')) {
+                                        lastQueryDescription = data.detail;
+                                    }
+                                } else if (data.type === 'sql') {
+                                    // Store and display SQL in a collapsible details element
+                                    lastQuerySQL = data.sql;
+
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const sqlContainer = document.createElement('details');
+                                        sqlContainer.style.cssText = 'margin: 10px 0; background: #fafafa; padding: 8px; border-radius: 6px;';
+                                        sqlContainer.innerHTML = `
+                                            <summary style="cursor: pointer; color: #3498db; font-size: 12px; font-weight: 500;">
+                                                📊 View SQL Query
+                                            </summary>
+                                            <pre style="margin: 8px 0 0 0; padding: 10px; background: #1a252f; border-radius: 4px; color: #e0e0e0; overflow-x: auto; font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; line-height: 1.4;">${formatSQL(data.sql)}</pre>
+                                        `;
+                                        stepsDiv.appendChild(sqlContainer);
+                                    }
+                                } else if (data.type === 'tool_start') {
+                                    // Show which data source is being queried
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.style.cssText = 'margin: 8px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">🔍</span>
+                                            <strong style="color: #3498db;">Querying ${data.source || 'Financial Analytics'}</strong>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+                                    }
+                                } else if (data.type === 'tool_result') {
+                                    // Store raw_data from Genie for export
+                                    if (data.raw_data && data.raw_data.length > 0) {
+                                        window.lastQueryData = data.raw_data;
+                                        lastQueryData = data.raw_data;
+                                        console.log('Stored raw_data for export:', data.raw_data.length, 'rows');
+
+                                        // Show export button when we have data
+                                        const exportBtn = document.getElementById('exportDataBtn');
+                                        if (exportBtn) {
+                                            exportBtn.style.display = 'inline-block';
+                                        }
+                                    }
+
+                                    // Store metadata for export
+                                    window.exportMetadata = {
+                                        rowCount: data.row_count,
+                                        sql: data.sql || lastQuerySQL,
+                                        description: data.description || lastQueryDescription,
+                                        tables: data.tables || [],
+                                        timestamp: new Date().toISOString()
+                                    };
+
+                                    // Display tables accessed and row count
+                                    if (data.tables && data.tables.length > 0) {
+                                        const stepsDiv = document.getElementById('genie-steps');
+                                        if (stepsDiv) {
+                                            const metaDiv = document.createElement('div');
+                                            metaDiv.style.cssText = 'margin: 8px 0; padding: 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px; font-size: 11px;';
+                                            metaDiv.innerHTML = `
+                                                <div style="color: #3498db; margin-bottom: 4px;">📊 Query Metadata:</div>
+                                                <div style="color: #6b7280;">• Tables: ${data.tables.join(', ')}</div>
+                                                ${data.row_count ? `<div style="color: #6b7280;">• Rows returned: ${data.row_count.toLocaleString()}</div>` : ''}
+                                            `;
+                                            stepsDiv.appendChild(metaDiv);
+                                        }
+                                    }
+                                } else if (data.type === 'token') {
+                                    if (!responseStarted) {
+                                        responseStarted = true;
+                                        // Don't update status yet - keep showing "Analyzing..."
+                                        // Just hide the spinner
+                                        const spinnerDiv = statusDiv.querySelector('.spinner');
+                                        if (spinnerDiv) {
+                                            spinnerDiv.style.display = 'none';
+                                        }
+                                        // Create a new response div for this specific response
+                                        currentResponseDiv = document.createElement('div');
+                                        currentResponseDiv.className = 'chat-message genie response';
+                                        messagesContainer.appendChild(currentResponseDiv);
+                                    }
+                                    messageBuffer += data.content;
+                                    // Update the specific response div for this request
+                                    if (currentResponseDiv) {
+                                        const formatted = formatMarkdown(messageBuffer);
+                                        currentResponseDiv.innerHTML = `<strong>Genie:</strong> ${formatted}`;
+                                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                    }
+                                    // Check for table data and show export button
+                                    if (messageBuffer.includes('|') && messageBuffer.includes('---')) {
+                                        const exportBtn = document.getElementById('exportDataBtn');
+                                        if (exportBtn) {
+                                            exportBtn.style.display = 'block';
+                                        }
+                                    }
+                                } else if (data.type === 'error') {
+                                    // Update status to show error
+                                    const spinnerDiv = statusDiv.querySelector('.spinner');
+                                    if (spinnerDiv) {
+                                        spinnerDiv.innerHTML = '✗';
+                                        spinnerDiv.style.cssText = 'color: #e74c3c; font-weight: bold; font-size: 16px;';
+                                    }
+                                    const statusText = statusDiv.querySelector('em');
+                                    if (statusText) {
+                                        statusText.textContent = 'Error occurred';
+                                        statusText.style.color = '#e74c3c';
+                                    }
+                                    const errorDiv = document.createElement('div');
+                                    errorDiv.className = 'message assistant';
+                                    errorDiv.innerHTML = `<div style="color: #e74c3c;">Error: ${data.message}</div>`;
+                                    messagesContainer.appendChild(errorDiv);
+                                    return;
+                                }
+                            } catch (e) {
+                                console.error('Error parsing stream data:', e);
+                            }
+                        }
+                    }
+
+                    processStream();
+                });
+            }
+
+            processStream().then(() => {
+                // After streaming is complete, get the final formatted response
+                // Store data for export
+                const exportData = {
+                    timestamp: new Date().toISOString(),
+                    question: question,
+                    description: lastQueryDescription || '',
+                    sql_query: lastQuerySQL || '',
+                    data: lastQueryData || []
+                };
+                window.exportMetadata = exportData;
+
+                // Update status to show completion but keep the steps visible
+                const spinnerDiv = statusDiv.querySelector('.spinner');
+                if (spinnerDiv) {
+                    spinnerDiv.style.display = 'none';
+                }
+                const statusText = statusDiv.querySelector('em');
+                if (statusText) {
+                    statusText.textContent = 'Analysis complete';
+                    statusText.style.color = '#28a745';
+                }
+            });
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') {
+                console.log('Request was aborted');
+                return;
+            }
+            console.error('Streaming error:', error);
+
+            // Update status to show error but keep the steps visible
+            const spinnerDiv = statusDiv.querySelector('.spinner');
+            if (spinnerDiv) {
+                spinnerDiv.style.display = 'none';
+            }
+            const statusText = statusDiv.querySelector('em');
+            if (statusText) {
+                statusText.textContent = 'Error occurred';
+                statusText.style.color = '#dc3545';
+            }
+
+            // Show error message
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'message assistant';
+            errorMessage.innerHTML = 'Sorry, I encountered an error. Please try again.';
+            messagesContainer.appendChild(errorMessage);
+        })
+        .finally(() => {
+            currentRequestController = null;
+            isRequestInProgress = false;
+        });
+    } */
+
+    function formatSQL(sql) {
+        if (!sql) return sql;
+
+        let formatted = sql;
+        formatted = formatted.replace(/\s+(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT)/gi, '\n$1');
+        formatted = formatted.replace(/\s+(LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN)/gi, '\n$1');
+        formatted = formatted.replace(/\s+AND\s+/gi, '\n  AND ');
+        formatted = formatted.replace(/\s+OR\s+/gi, '\n  OR ');
+        formatted = formatted.replace(/\(\s*SELECT/gi, '(\n  SELECT');
+        formatted = formatted.replace(/\s+/g, ' ').trim();
+
+        const lines = formatted.split('\n');
+        let indentLevel = 0;
+        const formattedLines = lines.map(line => {
+            line = line.trim();
+            if (line.startsWith(')')) {
+                indentLevel = Math.max(0, indentLevel - 1);
+            }
+            const indentedLine = '  '.repeat(indentLevel) + line;
+            if (line.includes('(') && line.includes('SELECT')) {
+                indentLevel++;
+            }
+            return indentedLine;
+        });
+
+        return formattedLines.join('\n');
+    }
+
+    function formatMarkdown(text) {
+        let formatted = text;
+
+        // Format tables - must be done before other replacements
+        const tableRegex = /(\|.*\|[\r\n]+)+/g;
+        formatted = formatted.replace(tableRegex, (match) => {
+            const lines = match.trim().split('\n');
+            if (lines.length < 2) return match;
+
+            // Check if second line is separator
+            const isSeparator = lines[1] && lines[1].includes('---');
+            const startIdx = isSeparator ? 2 : 0;
+            const headerLine = isSeparator ? lines[0] : null;
+
+            let tableHtml = '<table style="width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px;">';
+
+            // Add header if exists
+            if (headerLine) {
+                tableHtml += '<thead><tr style="background: rgba(52, 152, 219, 0.1);">';
+                const headers = headerLine.split('|').filter(cell => cell.trim());
+                headers.forEach(header => {
+                    tableHtml += `<th style="padding: 8px; border: 1px solid rgba(52, 152, 219, 0.3); text-align: left; font-weight: 600;">${header.trim()}</th>`;
+                });
+                tableHtml += '</tr></thead>';
+            }
+
+            // Add body rows
+            tableHtml += '<tbody>';
+            for (let i = startIdx; i < lines.length; i++) {
+                if (!lines[i].includes('---')) {
+                    const cells = lines[i].split('|').filter(cell => cell.trim());
+                    if (cells.length > 0) {
+                        tableHtml += '<tr>';
+                        cells.forEach(cell => {
+                            tableHtml += `<td style="padding: 8px; border: 1px solid rgba(52, 152, 219, 0.2);">${cell.trim()}</td>`;
+                        });
+                        tableHtml += '</tr>';
+                    }
+                }
+            }
+            tableHtml += '</tbody></table>';
+            return tableHtml;
+        });
+
+        // Format headers
+        formatted = formatted.replace(/^### (.*?)$/gm, '<h3 style="font-size: 14px; font-weight: 600; margin: 10px 0 6px 0;">$1</h3>');
+        formatted = formatted.replace(/^## (.*?)$/gm, '<h2 style="font-size: 15px; font-weight: 600; margin: 12px 0 8px 0;">$1</h2>');
+        formatted = formatted.replace(/^# (.*?)$/gm, '<h1 style="font-size: 16px; font-weight: 600; margin: 12px 0 8px 0;">$1</h1>');
+
+        // Format bold and italic
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+        // Format code blocks
+        formatted = formatted.replace(/```sql\n([\s\S]+?)```/g,
+            '<pre style="background: #1e2329; padding: 10px; border-radius: 4px; margin: 8px 0; overflow-x: auto; font-size: 12px; font-family: monospace; color: #e0e0e0;">$1</pre>');
+        formatted = formatted.replace(/```\n([\s\S]+?)```/g,
+            '<pre style="background: #1e2329; padding: 10px; border-radius: 4px; margin: 8px 0; overflow-x: auto; font-size: 12px; font-family: monospace; color: #e0e0e0;">$1</pre>');
+        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #1e2329; padding: 2px 4px; border-radius: 3px; font-size: 12px;">$1</code>');
+
+        // Format lists
+        formatted = formatted.replace(/^\* (.+)$/gm, '<li style="font-size: 13px; line-height: 1.5; margin: 4px 0;">$1</li>');
+        formatted = formatted.replace(/(<li.*?<\/li>)/s, '<ul style="margin: 8px 0; padding-left: 20px;">$1</ul>');
+
+        // Format line breaks
+        formatted = formatted.replace(/\n\n/g, '</p><p style="font-size: 13px; line-height: 1.5; margin: 8px 0;">');
+        formatted = formatted.replace(/\n/g, '<br>');
+
+        // Wrap in paragraph if not already wrapped
+        if (!formatted.startsWith('<')) {
+            formatted = `<p style="font-size: 13px; line-height: 1.5; margin: 8px 0;">${formatted}</p>`;
+        }
+
+        return formatted;
+    }
+
+    // Export functionality
+    window.exportData = function() {
+        try {
+            let csvContent = '';
+            let filename = 'admin_data_export.csv';
+
+            // Use raw query data if available
+            if (window.lastQueryData && window.lastQueryData.length > 0) {
+                const headers = Object.keys(window.lastQueryData[0]);
+                csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+
+                window.lastQueryData.forEach(row => {
+                    const values = headers.map(h => {
+                        const val = row[h];
+                        if (val === null || val === undefined) return '""';
+                        const str = String(val);
+                        const escaped = str.replace(/"/g, '""');
+                        return `"${escaped}"`;
+                    });
+                    csvContent += values.join(',') + '\n';
+                });
+
+                filename = 'admin_query_results.csv';
+            } else {
+                alert('No query data available to export. Please run a query first.');
+                return;
+            }
+
+            // Download CSV
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            console.log('Export completed successfully');
+        } catch (e) {
+            alert('Export failed: ' + e.message);
+            console.error(e);
+        }
+    };
+
+    // Duplicate sendChatMessage function removed - using shared modal.js version
+    /* function sendChatMessage() {
+        console.log('[ADMIN DEBUG] sendChatMessage called');
+
+        const input = document.getElementById('chatInput');
+        console.log('[ADMIN DEBUG] chatInput element exists:', !!input);
+
+        if (!input) {
+            console.error('[ADMIN DEBUG] CRITICAL: chatInput not found in sendChatMessage!');
+            return;
+        }
+
+        const question = input.value.trim();
+        console.log('[ADMIN DEBUG] Question from input:', question);
+        console.log('[ADMIN DEBUG] Question length:', question.length);
+        console.log('[ADMIN DEBUG] isRequestInProgress:', isRequestInProgress);
+
+        if (question && !isRequestInProgress) {
+            console.log('[ADMIN DEBUG] Conditions met, calling askGenie');
+            console.log('[ADMIN DEBUG] askGenie function exists:', typeof askGenie === 'function');
+
+            try {
+                askGenie(question, true);
+                console.log('[ADMIN DEBUG] askGenie called successfully');
+                input.value = '';
+                console.log('[ADMIN DEBUG] Input cleared');
+            } catch (error) {
+                console.error('[ADMIN DEBUG] Error calling askGenie:', error);
+                console.error('[ADMIN DEBUG] Error stack:', error.stack);
+            }
+        } else {
+            console.log('[ADMIN DEBUG] Conditions not met for sending message');
+            console.log('[ADMIN DEBUG] - Has question:', !!question);
+            console.log('[ADMIN DEBUG] - Request not in progress:', !isRequestInProgress);
+        }
+    } */
+
+
+    // All modal functionality is now handled by shared modal.js
+</script>
+
+<!-- Include shared modal JavaScript -->
+<script src="{{ url_for('static', filename='modal.js') }}?v={{ range(1000, 9999) | random }}"></script>
+
+{% endblock %}

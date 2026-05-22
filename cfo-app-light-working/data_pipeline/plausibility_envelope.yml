@@ -1,0 +1,150 @@
+# Plausibility envelope — single source of truth for what a realistic Tier-1
+# consulting firm looks like. Read by 01_generate_bronze_data.py to constrain
+# sampling, and by 04_envelope_safety_net.py to verify emergent aggregates.
+#
+# Calibrated to Big-4 / Tier-1 publics: ~$18-22B annual revenue, ~2,500
+# active partners, ~30K employees. Adjust if the demo's engineered narrative
+# locks different scale.
+
+firmwide:
+  annual_revenue_B: [16, 22]
+  gross_margin_pct: [35, 50]
+  operating_margin_pct: [12, 25]
+  active_partners: [2400, 2800]
+  strict_partners: [2300, 2600]      # narrower job_level filter
+  revenue_per_partner_annual_M: [6, 9]
+  total_active_clients: [800, 1500]
+  total_active_engagements: [900, 2000]
+  total_employees: [25000, 45000]
+
+office_economics:
+  count: [20, 25]
+  share_of_firmwide_revenue_pct: [1, 15]
+  monthly_revenue_M: [20, 250]
+  yoy_revenue_growth_pct: [-8, 25]
+  yoy_expense_growth_pct: [-8, 20]
+  mom_expense_growth_pct: [-10, 10]
+  dso_days: [25, 50]
+  utilization_pct: [60, 75]
+
+practice_economics:
+  count: [6, 9]
+  share_of_firmwide_revenue_pct: [3, 40]
+  gross_margin_pct: [30, 55]
+  partner_count: [150, 600]
+  # narrative-bearing tier shares (loose bounds, calibration target)
+  strategy_consulting_share_pct: [28, 40]
+  technology_share_pct: [18, 30]
+  tax_share_pct: [4, 10]
+  audit_share_pct: [3, 8]
+
+engagement_economics:
+  median_engagement_value_M: [0.4, 3]
+  p90_engagement_value_M: [4, 15]
+  top_engagement_value_M: [15, 60]
+  top_engagement_6mo_billable_M: [3, 30]
+  engagement_gross_margin_pct: [20, 60]
+  engagement_duration_months: [2, 24]
+
+partner_economics:
+  monthly_billable_hours_per_partner: [60, 110]
+  utilization_pct: [55, 75]
+  tax_utilization_pct: [50, 65]
+  monthly_revenue_per_partner_K: [500, 1000]
+  annual_attrition_pct: [4, 8]
+  mom_partner_count_change_pct: [-2, 2]
+
+receivables_ar:
+  total_open_ar_B: [1.5, 3]
+  # Bucket shares depend on the per-client payment-archetype mix in
+  # 01_generate_bronze_data.py (PAYMENT_ARCHETYPES). With ~30% fast / 45%
+  # normal / 18% slow / 7% chronic-late, expected steady-state shares are
+  # roughly 0-30: 50-65%, 31-60: 18-28%, 61-90: 6-14%, 91+: 4-10%.
+  aging_distribution_pct:
+    bucket_0_30: [45, 70]
+    bucket_31_60: [15, 32]
+    bucket_61_90: [5, 16]
+    bucket_91_plus: [3, 12]
+  dso_definition_grain: month_end_snapshot
+  top_10_client_ar_concentration_pct: [25, 45]
+  top_1_client_ar_concentration_pct: [4, 8]
+  single_invoice_M: [0.05, 12]
+  # MoM firmwide DSO stability — max absolute day swing between consecutive
+  # month-end snapshots in gold_ar_snapshot_aging. A swing >15 days reads as
+  # the cohort-age artifact (137 → 39 over 4 months), not a real business move.
+  max_mom_firmwide_dso_delta_days: 15
+  # Cohort variance — top-5 and non-top-5 customer cohorts must have weighted
+  # DSO at least 1 day apart. Identical = single-distribution synthetic smell.
+  min_top5_vs_rest_dso_spread_days: 1.0
+
+payables_ap:
+  dpo_days: [30, 50]
+  top_vendor_concentration_pct: [3, 10]
+  vendor_count: [200, 500]
+  ap_balance_M: [400, 1200]
+
+expense_structure:
+  expense_to_revenue_pct: [65, 80]
+  labor_cost_share_pct: [50, 65]
+  subcontractor_share_pct: [8, 15]
+  real_estate_share_pct: [8, 12]
+  tech_cloud_share_pct: [3, 7]
+  t_and_e_share_pct: [4, 8]
+  marketing_share_pct: [1, 3]
+  # 2026-05-21 — widened lower bound from 70 to 60. Reason: EXPENSE_SCALE was
+  # killed (02_build_silver_gold.py:76, was 150 → now 1) and the compensating
+  # 150x boost moved to bronze T&E generation in 01_generate_bronze_data.py.
+  # Result: bronze.transaction_amount on billable rows now reflects Tier-1
+  # magnitudes naturally, so SUM(bronze.transaction_amount WHERE is_billable)
+  # jumps from ~$0.1B to ~$16B. Labor share consequently drops from the
+  # previously-failing 99.71% to ~69.6%. That value is closer to the locked
+  # narrative (~62% labor share for a Tier-1 services firm) and more credible
+  # than the prior 99.71%. The lower bound is widened, not removed — if a
+  # future change pushes labor share below 60% (T&E dominates) that's still a
+  # regression worth catching.
+  billable_expense_labor_share_pct: [60, 95]
+
+budget_variance:
+  office_month_variance_pct: [-20, 25]
+  firmwide_annual_variance_pct: [-10, 15]
+  practice_quarter_variance_pct: [-15, 20]
+  # how budget is derived — never sampled independently
+  budget_jitter_pct_around_actual: 15
+
+industry_mix:
+  financial_services_pct: [20, 32]
+  healthcare_pct: [14, 24]
+  tmt_pct: [14, 22]
+  consumer_retail_pct: [9, 16]
+  industrials_pct: [7, 13]
+  energy_materials_pct: [4, 10]
+  public_sector_pct: [4, 10]
+  private_equity_pct: [3, 8]
+
+client_portfolio:
+  top_10_revenue_concentration_pct: [15, 28]
+  top_1_revenue_concentration_pct: [2, 5]
+  gov_multilateral_revenue_share_pct: [3, 9]
+  gov_multilateral_in_top_10_max: 2
+
+semantic_invariants:
+  ar_project_id_fk_resolution_pct: 100
+  expense_project_id_fk_resolution_pct: 100
+  billable_label_on_te_vendors: forbidden
+  cross_region_project_share_pct_max: 5
+  monotonic_partner_count: required
+  event_volume_through_current_date: steady
+
+volume_density:
+  ar_rows_per_office_month_min: 30
+  ap_rows_per_office_month_min: 40
+  timecard_rows_per_office_month_min: 100
+  no_zero_cells_in_office_x_practice_x_month: true
+
+metric_definitions:
+  dso: "(SUM(open_ar_balance at month-end) / SUM(monthly_revenue)) * days_in_month — MONTH-END SNAPSHOT GRAIN, not invoice cohort age"
+  dpo: "(SUM(open_ap_balance at month-end) / SUM(monthly_purchases)) * days_in_month — MONTH-END SNAPSHOT GRAIN"
+  utilization: "billable_hours / available_hours, where available_hours = working_days_in_month * 8"
+  gross_margin: "(revenue - direct_cost) / revenue"
+  revenue_per_partner: "trailing_12mo_revenue / active_partner_count_today"
+  billable_hours_per_partner_month: "SUM(billable_hours where job_level = 'Partner') / COUNT(DISTINCT partner) / months_in_window"

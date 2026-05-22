@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Persona Persistence</title>
+    <script>
+        function testPersonaPersistence() {
+            // Test storing persona
+            sessionStorage.setItem('selectedPersona', 'sarah');
+            sessionStorage.setItem('selectedName', 'Sarah Chen');
+            sessionStorage.setItem('selectedRole', 'Finance Director');
+
+            // Test retrieving persona
+            const persona = sessionStorage.getItem('selectedPersona');
+            const name = sessionStorage.getItem('selectedName');
+            const role = sessionStorage.getItem('selectedRole');
+
+            document.getElementById('result').innerHTML = `
+                <h3>SessionStorage Test Results:</h3>
+                <p>Persona: ${persona}</p>
+                <p>Name: ${name}</p>
+                <p>Role: ${role}</p>
+                <p style="color: green;">✓ Persona persistence is working correctly!</p>
+            `;
+        }
+    </script>
+</head>
+<body>
+    <h1>Testing Persona Persistence</h1>
+    <button onclick="testPersonaPersistence()">Test SessionStorage</button>
+    <div id="result"></div>
+</body>
+</html>

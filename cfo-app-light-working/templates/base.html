@@ -1,0 +1,280 @@
+<!-- templates/base.html - Base template with Databricks styling -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Finance & Admin Control Center - Databricks{% endblock %}</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v={{ range(1000, 9999) | random }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v={{ range(1000, 9999) | random }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='modal.css') }}?v={{ range(1000, 9999) | random }}">
+
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+
+    <style>
+        @keyframes logoSheen {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .logo-placeholder:hover .sheen-effect {
+            animation: logoSheen 1s ease-in-out;
+        }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <!-- Top Header Bar -->
+    <header class="top-header">
+        <div class="header-container">
+            <div class="header-left">
+                <div class="logo-container" style="display: flex; align-items: center; gap: 12px;">
+                    <div class="logo-placeholder" style="width: 40px; height: 40px; background: linear-gradient(135deg, #ff5f46, #ff8672); border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; cursor: pointer;">
+                        <i class="fas fa-cube" style="color: white; font-size: 20px; z-index: 1;"></i>
+                        <div class="sheen-effect" style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.4) 50%, transparent 70%);"></div>
+                    </div>
+                    <div>
+                        <div class="header-title" style="font-size: 1.5rem; font-weight: 600; color: #1f2937; margin: 0;">Databricks Finance Hub</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Profile (stays in top-right) -->
+            <!-- Header name/role must match data.active_persona resolved server-side
+                 from the selectedPersona cookie. Hardcoding "Priya Patel" here caused
+                 the cross-tab bug: on a fresh tab with cookie=michael, server rendered
+                 Michael's KPIs in the body but the header still said "Priya Patel" —
+                 visibly broken. Conditional below mirrors the body-container logic. -->
+            <div class="nav-user-section">
+                <div class="user-profile" onclick="toggleUserDropdown()">
+                    <div class="user-icon">👤</div>
+                    <div class="user-info">
+                        {% if data and data.active_persona == 'finance' %}
+                          <div class="user-name" id="userName">Sarah Chen</div>
+                          <div class="user-role" id="userRole">Finance Director</div>
+                        {% elif data and data.active_persona == 'hr' %}
+                          <div class="user-name" id="userName">Michael Rodriguez</div>
+                          <div class="user-role" id="userRole">Chief Human Resources Officer</div>
+                        {% else %}
+                          <div class="user-name" id="userName">Priya Patel</div>
+                          <div class="user-role" id="userRole">Senior Partner</div>
+                        {% endif %}
+                    </div>
+                    <div class="dropdown-indicator">▼</div>
+                </div>
+                <div class="user-dropdown" id="userDropdown">
+                    <div class="dropdown-item" onclick="selectUser('priya', 'Priya Patel', 'Senior Partner')">
+                        <div class="dropdown-user-icon">👤</div>
+                        <div class="dropdown-user-info">
+                            <div class="dropdown-user-name">Priya Patel</div>
+                            <div class="dropdown-user-role">Senior Partner</div>
+                        </div>
+                    </div>
+                    <div class="dropdown-item" onclick="selectUser('sarah', 'Sarah Chen', 'Finance Director')">
+                        <div class="dropdown-user-icon">👤</div>
+                        <div class="dropdown-user-info">
+                            <div class="dropdown-user-name">Sarah Chen</div>
+                            <div class="dropdown-user-role">Finance Director</div>
+                        </div>
+                    </div>
+                    <div class="dropdown-item" onclick="selectUser('michael', 'Michael Rodriguez', 'Chief Human Resources Officer')">
+                        <div class="dropdown-user-icon">👤</div>
+                        <div class="dropdown-user-info">
+                            <div class="dropdown-user-name">Michael Rodriguez</div>
+                            <div class="dropdown-user-role">Chief Human Resources Officer</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout Container -->
+    <div class="main-layout">
+        <!-- Left Sidebar Navigation -->
+        <nav class="sidebar-nav">
+            <!-- Logo section removed - now in header -->
+            <div class="sidebar-brand" style="display: none;">
+                <div class="logo-container">
+                    <div class="logo-placeholder">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <div>
+                        <span class="brand-text">Databricks</span>
+                        <span class="brand-subtitle">Finance Hub</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-menu" style="padding-top: 20px;">
+                <a href="{{ url_for('landing_page') }}" class="sidebar-link {% if request.endpoint == 'landing_page' %}active{% endif %}">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Executive Summary</span>
+                </a>
+                <a href="{{ url_for('finance_deepdive') }}" class="sidebar-link {% if request.endpoint == 'finance_deepdive' %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Finance Overview</span>
+                </a>
+                <a href="{{ url_for('admin_deepdive') }}" class="sidebar-link {% if request.endpoint == 'admin_deepdive' %}active{% endif %}">
+                    <i class="fas fa-cogs"></i>
+                    <span>Admin Overview</span>
+                </a>
+            </div>
+
+            <!-- AI Assistant link at bottom of sidebar -->
+            <div class="sidebar-bottom">
+                <a href="#" class="sidebar-link ai-assistant-link" onclick="openAIAssistant(); return false;">
+                    <i class="fas fa-robot"></i>
+                    <span>AI Assistant</span>
+                </a>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}?v={{ range(1000, 9999) | random }}"></script>
+
+    <!-- Persona Management Script -->
+    <script>
+        // Initialize persona on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const storedPersona = sessionStorage.getItem('selectedPersona');
+            const storedName = sessionStorage.getItem('selectedName');
+            const storedRole = sessionStorage.getItem('selectedRole');
+
+            const cookieRaw = document.cookie.split(';').map(c => c.trim())
+                .find(c => c.startsWith('selectedPersona='));
+            const cookieValue = cookieRaw ? decodeURIComponent(cookieRaw.split('=')[1]) : null;
+
+            // NEW-TAB RESET: sessionStorage is tab-scoped. A new tab has empty
+            // sessionStorage. If we land on a fresh tab and the persona cookie
+            // is still set from a prior tab (cookie persists across tabs), the
+            // server just rendered the WRONG persona's content. Clear the
+            // cookie and reload so the server defaults to Priya.
+            // Fixes: "open new tab → app shows last-switched persona instead
+            // of always defaulting to Priya" (reported 2026-05-20).
+            if (!storedPersona && cookieValue && cookieValue !== 'priya') {
+                document.cookie = 'selectedPersona=; path=/; max-age=0; SameSite=Lax';
+                window.location.reload();
+                return;
+            }
+
+            // Self-heal: if sessionStorage has a persona but the cookie doesn't
+            // match (e.g., navigation refresh within the same tab), sync the
+            // cookie and reload so the server-rendered content matches the
+            // sessionStorage persona.
+            if (storedPersona) {
+                if (cookieValue !== storedPersona) {
+                    document.cookie = `selectedPersona=${encodeURIComponent(storedPersona)}; path=/; max-age=${60*60*24*30}; SameSite=Lax`;
+                    if (storedPersona !== 'priya') {
+                        window.location.reload();
+                        return;
+                    }
+                }
+            }
+
+            if (storedPersona && storedName && storedRole) {
+                // Update the display
+                document.getElementById('userName').textContent = storedName;
+                document.getElementById('userRole').textContent = storedRole;
+
+                // Update any persona-specific content on the current page
+                updatePersonaContent(storedPersona);
+            }
+        });
+
+        // Toggle user dropdown
+        function toggleUserDropdown() {
+            const dropdown = document.getElementById('userDropdown');
+            dropdown.classList.toggle('show');
+        }
+
+        // Select user and persist selection
+        function selectUser(userId, userName, userRole) {
+            // Update display
+            document.getElementById('userName').textContent = userName;
+            document.getElementById('userRole').textContent = userRole;
+
+            // Store in sessionStorage for persistence
+            sessionStorage.setItem('selectedPersona', userId);
+            sessionStorage.setItem('selectedName', userName);
+            sessionStorage.setItem('selectedRole', userRole);
+
+            // Hide dropdown
+            document.getElementById('userDropdown').classList.remove('show');
+
+            // Update persona-specific content on the current page
+            updatePersonaContent(userId);
+        }
+
+        // Update persona-specific content (for pages that have it)
+        function updatePersonaContent(userId) {
+            // Update visible questions based on user (if they exist on this page)
+            const userQuestions = document.querySelectorAll('.user-questions');
+            userQuestions.forEach(questions => {
+                questions.classList.remove('active');
+            });
+
+            // Update visible insights based on user (if they exist on this page)
+            const userInsights = document.querySelectorAll('.user-insights');
+            userInsights.forEach(insights => {
+                insights.classList.remove('active');
+            });
+
+            // Show the appropriate questions and insights for the selected user
+            const selectedQuestions = document.querySelector(`.user-questions[data-user="${userId}"]`);
+            const selectedInsights = document.querySelector(`.user-insights[data-user="${userId}"]`);
+
+            if (selectedQuestions) {
+                selectedQuestions.classList.add('active');
+            }
+            if (selectedInsights) {
+                selectedInsights.classList.add('active');
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const userProfile = document.querySelector('.user-profile');
+            const dropdown = document.getElementById('userDropdown');
+
+            if (userProfile && dropdown && !userProfile.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        // Fallback openAIAssistant function for pages that don't have the modal
+        if (typeof window.openAIAssistant === 'undefined') {
+            window.openAIAssistant = function() {
+                console.log('[DEBUG] openAIAssistant fallback - redirecting to landing page');
+                // Redirect to landing page with a flag to open the AI assistant
+                window.location.href = '/?openAI=true';
+            };
+        }
+    </script>
+
+    <!-- Cascading Filters Script -->
+    <script src="{{ url_for('static', filename='cascading_filters.js') }}"></script>
+
+    <!-- Custom Dropdowns Script -->
+    <script src="{{ url_for('static', filename='custom_dropdowns.js') }}"></script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,67 @@
+# Backup follow-up questions for the orchestrator's validate-and-regenerate
+# loop. When a pre-cached chip's follow-up returns a hollow payload (0 rows
+# / "no data was returned" prose), the orchestrator substitutes from this
+# pool until it finds one that validates.
+#
+# Why this is needed: Haiku/Opus generates follow-up text from the parent
+# chip's sub-query results context. It can latch onto an entity name that
+# appears in the data (e.g. "<Client> Pricing Optimization retainer") but
+# doesn't have drill-down records at the engagement grain — so the cached
+# follow-up answers with "no data was returned" prose. That UX is awful.
+#
+# Each backup question MUST:
+#   1. Be answerable against the gold/silver tables that the orchestrator's
+#      Opus-decompose path can reach (gold_regional_pnl, gold_enterprise_metrics,
+#      silver_fact_accounts_receivable, silver_fact_timecards, etc.).
+#   2. Not reference specific entity names (project, customer, vendor) by
+#      name — instead use aggregate framings like "by office", "by practice",
+#      "by aging bucket". This sidesteps the orphan-entity problem entirely.
+#   3. Be a natural follow-up extension of the parent chip's theme (revenue
+#      variance, margin compression, expense overage, AR aging, partner
+#      attrition, utilization).
+
+# ─── Admin / Senior Partner persona (exec summary chips) ───────────────────
+admin_backup_followups:
+  - "Which offices contributed the largest absolute dollar amount to firmwide revenue variance?"
+  - "Which practices show the widest gap between billable revenue and forecasted revenue?"
+  - "How does revenue growth trajectory compare across the top-5 and bottom-5 offices?"
+  - "Which practice areas are absorbing the largest share of firmwide expense overage?"
+  - "What is the partner headcount distribution across practice areas?"
+  - "Which industry verticals show the strongest revenue concentration?"
+  - "How does gross margin vary across the top revenue-generating offices?"
+
+# ─── Finance persona (exec summary chips) ──────────────────────────────────
+finance_backup_followups:
+  - "Which offices show the largest aging buckets in 90+ day accounts receivable?"
+  - "How does DSO vary across regions in the latest fiscal month?"
+  - "Which vendor categories represent the largest share of open accounts payable?"
+  - "What is the distribution of unpaid invoices across the 0-30, 31-60, 61-90, and 90+ day buckets?"
+  - "Which offices contribute the most to firmwide open payables?"
+  - "How has the DSO trend evolved over the last 6 fiscal months at the firmwide level?"
+  - "What is the firmwide ratio of billable to corporate expenses by month?"
+
+# ─── HR / Talent persona (exec summary chips) ──────────────────────────────
+hr_backup_followups:
+  - "Which practices show the largest month-over-month change in utilization rate?"
+  - "How does non-billable cost distribute across job levels firmwide?"
+  - "Which job levels contribute the most to firmwide bench cost?"
+  - "What is the partner headcount trend over the last 6 months by practice?"
+  - "Which practices have the highest percentage of low-utilization employees relative to total headcount?"
+  - "How does utilization vary across regions for the latest complete fiscal month?"
+  - "What is the distribution of billable vs non-billable hours by practice this month?"
+
+# ─── Admin Overview deep-dive page chips (persona='_shared') ───────────────
+admin_page_backup_followups:
+  - "Which offices show the largest revenue variance in the latest fiscal month?"
+  - "How do regional billable revenue trends compare across the last 6 months?"
+  - "Which practice areas drive the majority of firmwide revenue?"
+  - "How does industry-level revenue distribute across the top 5 industries?"
+  - "Which offices have the largest gap between projected and budgeted revenue?"
+
+# ─── Finance Overview deep-dive page chips (persona='_shared') ─────────────
+finance_page_backup_followups:
+  - "Which aging buckets contain the largest share of firmwide unpaid receivables?"
+  - "How do billable expenses compare to corporate expenses month-over-month?"
+  - "What is the trend in invoice receivables over the last 6 complete fiscal months?"
+  - "Which vendor categories carry the longest average days outstanding?"
+  - "How does the firmwide enterprise margin compare across the last 6 fiscal months?"

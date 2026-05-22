@@ -1,0 +1,763 @@
+# Trusted/sample queries pinned to each Genie space.
+# `spaces` = list of which spaces this query is registered in.
+# `question_variants` = list of phrasings to match (Genie matches partial/typo'd
+# user input against any of these). All variants get the SAME pinned SQL.
+#
+# Customer portability:
+#   - Table references (`main.cfo_proserv.*`) are auto-rewritten to the deployed
+#     schema by bootstrap_genie_space.py at provision time.
+#   - These queries teach Genie SQL PATTERNS (joins, time recipes, aggregations).
+#     No customer-instance values (specific cities, practices, customers, dates)
+#     are hardcoded — when a user asks "why did London revenue underperform?",
+#     Genie applies the pattern from the trusted query with location='London'
+#     derived via entity matching from the user's natural language.
+#   - Where a query needs to demonstrate a slicing dimension, it groups BY that
+#     dimension rather than filtering to a literal value.
+
+queries:
+
+  # ---------- Finance landing-page patterns ----------
+  - id: q01_revenue_underperform_target_by_office
+    spaces: [v2_management]
+    question_variants:
+      - "Why did accrued billable revenues underperform target?"
+      - "Why did revenues underperform target?"
+      - "Why are billable revenues below budget?"
+      - "Which offices are missing revenue target?"
+    sql: |
+      -- Per-office, per-practice revenue vs budget for the most recent complete
+      -- fiscal month. Genie can filter to a specific office via natural-language
+      -- entity matching when the user names one.
+      SELECT
+        location,
+        practice_area,
+        ROUND(SUM(total_revenue) / 1e6, 1) AS actual_rev_mm,
+        ROUND(SUM(budgeted_revenue) / 1e6, 1) AS target_rev_mm,
+        ROUND((SUM(total_revenue) / NULLIF(SUM(budgeted_revenue), 0) - 1) * 100, 1) AS variance_pct,
+        ROUND(SUM(total_revenue) - SUM(budgeted_revenue), 0) AS dollar_gap
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+      GROUP BY location, practice_area
+      ORDER BY variance_pct ASC
+
+  - id: q02_project_gross_margins_reduced
+    spaces: [v2_analytics]
+    question_variants:
+      - "Why did Project Gross Margins reduce?"
+      - "Why did project gross margins decrease?"
+      - "Why are project margins down?"
+      - "Which projects had the biggest margin decline?"
+    sql: |
+      -- Project-level actual vs planned margin with biggest variance.
+      -- Filter applied for the most recent complete fiscal month.
+      -- Genie can scope to a location or practice via entity matching.
+      --
+      -- COST RECONCILIATION: gold_project_profitability.actual_cost is LABOR
+      -- only (timecard cost). The displayed margin uses revenue minus
+      -- adjusted-labor minus expenses. Exposing just `actual_cost` leaves the
+      -- reader unable to reconcile (revenue - actual_cost != margin amount).
+      -- We expose `total_cost_k = actual_revenue - actual_margin` so the
+      -- arithmetic ties out, and keep delivery_cost + expenses as separate
+      -- columns for transparency.
+      SELECT
+        project_name,
+        client_name,
+        practice_area,
+        location,
+        lead_partner_name,
+        ROUND(actual_revenue / 1e3, 0)                                    AS actual_revenue_k,
+        ROUND((actual_revenue - actual_margin) / 1e3, 0)                  AS total_cost_k,
+        ROUND(actual_cost / 1e3, 0)                                       AS delivery_cost_k,
+        ROUND(actual_expenses / 1e3, 0)                                   AS project_expenses_k,
+        actual_margin_pct,
+        planned_margin_pct,
+        ROUND(actual_margin_pct - planned_margin_pct, 1)                  AS margin_variance_pp
+      FROM main.cfo_proserv.gold_project_profitability
+      WHERE project_end_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+        AND project_end_date < DATE_TRUNC('MONTH', CURRENT_DATE())
+        AND actual_margin_pct BETWEEN -50 AND 70
+      ORDER BY actual_margin_pct - planned_margin_pct ASC
+      LIMIT 15
+
+  - id: q03_dso_rising
+    spaces: [v2_analytics]
+    question_variants:
+      - "What is the current firmwide DSO?"
+      - "What is DSO?"
+      - "Why has DSO been increasing recently?"
+      - "Why is DSO rising?"
+      - "Why did the DSO increase?"
+      - "Why is DSO up?"
+      - "How is collection velocity trending?"
+    sql: |
+      -- DSO — current + previous month-end from gold_ar_snapshot_aging.
+      -- firmwide_dso_days is the amount-weighted firmwide DSO at each
+      -- month-end snapshot, computed from open AR as of that date. Current
+      -- = latest snapshot, previous = one month earlier. This replaces the
+      -- shift-back-30-days approximation now that real snapshot history
+      -- exists (trailing 13 month-ends). Surfaces unpaid invoice count
+      -- from silver for narrative anchoring.
+      WITH snaps AS (
+        SELECT DISTINCT snapshot_date, firmwide_dso_days,
+               ROW_NUMBER() OVER (ORDER BY snapshot_date DESC) AS rn
+        FROM main.cfo_proserv.gold_ar_snapshot_aging
+      ),
+      counts AS (
+        SELECT COUNT(*) AS unpaid_invoice_count
+        FROM main.cfo_proserv.silver_fact_accounts_receivable
+        WHERE payment_status NOT IN ('Paid', 'Closed')
+      )
+      SELECT
+        ROUND(MAX(CASE WHEN rn = 1 THEN firmwide_dso_days END), 1) AS current_dso,
+        ROUND(MAX(CASE WHEN rn = 2 THEN firmwide_dso_days END), 1) AS previous_dso,
+        ROUND(
+          MAX(CASE WHEN rn = 1 THEN firmwide_dso_days END)
+          - MAX(CASE WHEN rn = 2 THEN firmwide_dso_days END),
+          1
+        ) AS dso_change_days,
+        MAX(CASE WHEN rn = 1 THEN snapshot_date END) AS current_snapshot_date,
+        (SELECT unpaid_invoice_count FROM counts) AS unpaid_invoice_count
+      FROM snaps
+      WHERE rn <= 2
+
+  # ---------- Admin landing-page patterns ----------
+  - id: q04_revenue_per_partner_declined
+    spaces: [v2_analytics]
+    question_variants:
+      - "What is revenue per partner?"
+      - "What is the current revenue per partner?"
+      - "Why did revenue per partner go down?"
+      - "Why did Revenue per Partner decrease?"
+      - "Why is revenue per partner declining?"
+      - "Revenue per partner YoY"
+    sql: |
+      -- Revenue per Partner — canonical formula: current month revenue × 12
+      -- (annualized) divided by strict-Partner headcount at the latest
+      -- snapshot. Matches the Admin Overview dashboard's "Revenue per
+      -- Partner" tile (current annualized $/partner + same-month-last-year
+      -- annualized $/partner for YoY comparison). Strict-Partner filter:
+      -- job_level = 'Partner' AND employment_status = 'Active' (excludes
+      -- Senior Partner, Associate Partner, and terminated employees).
+      WITH max_snap AS (
+        SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv.silver_dim_employees
+      ),
+      yoy_snap AS (
+        SELECT MAX(snapshot_date) AS yoy_date
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE snapshot_date <= ADD_MONTHS(max_date, -12)
+      ),
+      current_partners AS (
+        SELECT COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE job_level = 'Partner' AND snapshot_date = max_date AND employment_status = 'Active'
+      ),
+      yoy_partners AS (
+        SELECT COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, yoy_snap
+        WHERE job_level = 'Partner' AND snapshot_date = yoy_date AND employment_status = 'Active'
+      ),
+      current_revenue AS (
+        SELECT SUM(revenue) * 12 AS rev_annualized
+        FROM main.cfo_proserv.gold_enterprise_metrics
+        WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+      ),
+      yoy_revenue AS (
+        SELECT SUM(revenue) * 12 AS rev_annualized
+        FROM main.cfo_proserv.gold_enterprise_metrics
+        WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -13)
+      )
+      SELECT
+        ROUND(cr.rev_annualized / cp.partner_count / 1e6, 2) AS current_rev_per_partner_mm,
+        ROUND(yr.rev_annualized / yp.partner_count / 1e6, 2) AS yoy_rev_per_partner_mm,
+        cp.partner_count AS current_partner_count,
+        yp.partner_count AS yoy_partner_count,
+        ROUND((cr.rev_annualized / cp.partner_count) / NULLIF(yr.rev_annualized / yp.partner_count, 0) * 100 - 100, 2) AS yoy_pct_change
+      FROM current_revenue cr CROSS JOIN current_partners cp
+      CROSS JOIN yoy_revenue yr CROSS JOIN yoy_partners yp
+
+  - id: q04b_revenue_per_partner_drill_practice_region
+    spaces: [v2_analytics]
+    question_variants:
+      - "Revenue per partner by practice area and region"
+      - "Revenue per partner by practice and region YoY"
+      - "Which practices and regions have the worst revenue per partner decline?"
+      - "Revenue per partner drill down by practice area"
+      - "Revenue per partner declines by region"
+      - "What is the YoY change in revenue per partner by practice area and region?"
+    sql: |
+      -- Revenue per Partner DRILL-DOWN — same canonical formula as q04 (firmwide
+      -- annualized revenue ÷ strict-Partner headcount) but grouped by
+      -- practice_area × region. STRICT rules unchanged: only job_level='Partner'
+      -- (not Senior Partner, not Associate Partner) and active status.
+      --
+      -- DO NOT substitute gold_partner_metrics.revenue_managed — that is
+      -- "revenue managed by a specific named partner's book," which is a
+      -- different metric and produces incorrect drill-down RPP numbers.
+      WITH max_snap AS (
+        SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv.silver_dim_employees
+      ),
+      yoy_snap AS (
+        SELECT MAX(snapshot_date) AS yoy_date
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE snapshot_date <= ADD_MONTHS(max_date, -12)
+      ),
+      current_partners AS (
+        SELECT practice_area, region, COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE job_level = 'Partner' AND snapshot_date = max_date AND employment_status = 'Active'
+        GROUP BY practice_area, region
+      ),
+      yoy_partners AS (
+        SELECT practice_area, region, COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, yoy_snap
+        WHERE job_level = 'Partner' AND snapshot_date = yoy_date AND employment_status = 'Active'
+        GROUP BY practice_area, region
+      ),
+      current_revenue AS (
+        SELECT practice_area, region, SUM(revenue) * 12 AS rev_annualized
+        FROM main.cfo_proserv.gold_enterprise_metrics
+        WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+        GROUP BY practice_area, region
+      ),
+      yoy_revenue AS (
+        SELECT practice_area, region, SUM(revenue) * 12 AS rev_annualized
+        FROM main.cfo_proserv.gold_enterprise_metrics
+        WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -13)
+        GROUP BY practice_area, region
+      )
+      SELECT
+        cp.practice_area,
+        cp.region,
+        cp.partner_count AS current_partner_count,
+        yp.partner_count AS yoy_partner_count,
+        (cp.partner_count - yp.partner_count) AS partner_headcount_change,
+        ROUND(cr.rev_annualized / NULLIF(cp.partner_count, 0) / 1e6, 2) AS current_rev_per_partner_mm,
+        ROUND(yr.rev_annualized / NULLIF(yp.partner_count, 0) / 1e6, 2) AS yoy_rev_per_partner_mm,
+        ROUND(
+          (cr.rev_annualized / NULLIF(cp.partner_count, 0))
+          / NULLIF(yr.rev_annualized / NULLIF(yp.partner_count, 0), 0) * 100 - 100, 2
+        ) AS yoy_pct_change
+      FROM current_partners cp
+      LEFT JOIN yoy_partners yp ON cp.practice_area = yp.practice_area AND cp.region = yp.region
+      LEFT JOIN current_revenue cr ON cp.practice_area = cr.practice_area AND cp.region = cr.region
+      LEFT JOIN yoy_revenue yr ON cp.practice_area = yr.practice_area AND cp.region = yr.region
+      WHERE cp.partner_count >= 3   -- suppress noisy cells with tiny denominators
+      ORDER BY yoy_pct_change ASC NULLS LAST
+
+  - id: q05_practice_revenue_underperform
+    spaces: [v2_management]
+    question_variants:
+      - "Why did practice billable revenues underperform targets?"
+      - "Why did a practice area underperform?"
+      - "Practice revenue variance vs target"
+      - "Which practice areas missed their revenue target?"
+    sql: |
+      -- Practice-level revenue vs budget for the last 6 complete fiscal months.
+      -- Genie can scope to a specific practice via entity matching.
+      SELECT
+        fiscal_period,
+        practice_area,
+        ROUND(SUM(total_revenue) / 1e6, 2) AS revenue_mm,
+        ROUND(SUM(budgeted_revenue) / 1e6, 2) AS target_mm,
+        ROUND((SUM(total_revenue) / NULLIF(SUM(budgeted_revenue), 0) - 1) * 100, 1) AS variance_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY fiscal_period, practice_area
+      HAVING SUM(total_revenue) > 0
+      ORDER BY fiscal_period DESC, variance_pct ASC
+
+  - id: q06_expenses_over_budget_by_office
+    spaces: [v2_management]
+    question_variants:
+      - "Why are expenses over budget?"
+      - "Which office is over budget?"
+      - "Why did an office go over budget?"
+      - "Where are expenses running highest vs budget?"
+    sql: |
+      -- Per-office expense category breakdown vs budget for the last 7
+      -- complete fiscal months. Genie can scope to a specific office
+      -- via entity matching.
+      SELECT
+        fiscal_period,
+        location,
+        ROUND(SUM(billable_expenses) / 1e6, 1) AS billable_mm,
+        ROUND(SUM(corporate_expenses) / 1e6, 1) AS corporate_mm,
+        ROUND(SUM(marketing_expenses) / 1e6, 1) AS marketing_mm,
+        ROUND(SUM(tech_expenses) / 1e6, 1) AS tech_mm,
+        ROUND(SUM(other_expenses) / 1e6, 1) AS other_mm,
+        ROUND(SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) / 1e6, 1) AS total_actual_mm,
+        ROUND(SUM(budgeted_expenses) / 1e6, 1) AS budget_mm,
+        ROUND((SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) - SUM(budgeted_expenses))
+              / NULLIF(SUM(budgeted_expenses), 0) * 100, 1) AS over_budget_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -7)
+        AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY fiscal_period, location
+      ORDER BY fiscal_period DESC, over_budget_pct DESC
+
+  - id: q06b_expense_variance_by_category
+    spaces: [v2_management]
+    question_variants:
+      - "Which expense categories show the largest variance vs budget?"
+      - "Which expense categories are over budget?"
+      - "Where are we over budget by category?"
+      - "Which expense categories are running over plan?"
+      - "Expense variance by category"
+    sql: |
+      -- Per-CATEGORY actuals vs CATEGORY-SPECIFIC budget over the last 6
+      -- complete fiscal months, firmwide. Each category is compared against
+      -- its own budget pool (not the firmwide budget total), so variance %s
+      -- are comparable across categories. This answers "which categories are
+      -- most off plan" honestly — without this, all categories appeared
+      -- 88-100% under budget because they were each divided by the combined
+      -- firmwide budget pool.
+      SELECT
+        'Billable'   AS category,
+        ROUND(SUM(billable_expenses) / 1e6, 1)         AS actual_mm,
+        ROUND(SUM(budgeted_billable_expenses) / 1e6, 1) AS budget_mm,
+        ROUND((SUM(billable_expenses) - SUM(budgeted_billable_expenses))
+              / NULLIF(SUM(budgeted_billable_expenses), 0) * 100, 1) AS variance_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period <  DATE_TRUNC('MONTH', CURRENT_DATE())
+      UNION ALL
+      SELECT 'Corporate',
+        ROUND(SUM(corporate_expenses) / 1e6, 1),
+        ROUND(SUM(budgeted_corporate_expenses) / 1e6, 1),
+        ROUND((SUM(corporate_expenses) - SUM(budgeted_corporate_expenses))
+              / NULLIF(SUM(budgeted_corporate_expenses), 0) * 100, 1)
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period <  DATE_TRUNC('MONTH', CURRENT_DATE())
+      UNION ALL
+      SELECT 'Marketing',
+        ROUND(SUM(marketing_expenses) / 1e6, 1),
+        ROUND(SUM(budgeted_marketing_expenses) / 1e6, 1),
+        ROUND((SUM(marketing_expenses) - SUM(budgeted_marketing_expenses))
+              / NULLIF(SUM(budgeted_marketing_expenses), 0) * 100, 1)
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period <  DATE_TRUNC('MONTH', CURRENT_DATE())
+      UNION ALL
+      SELECT 'Technology',
+        ROUND(SUM(tech_expenses) / 1e6, 1),
+        ROUND(SUM(budgeted_tech_expenses) / 1e6, 1),
+        ROUND((SUM(tech_expenses) - SUM(budgeted_tech_expenses))
+              / NULLIF(SUM(budgeted_tech_expenses), 0) * 100, 1)
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period <  DATE_TRUNC('MONTH', CURRENT_DATE())
+      UNION ALL
+      SELECT 'Other',
+        ROUND(SUM(other_expenses) / 1e6, 1),
+        ROUND(SUM(budgeted_other_expenses) / 1e6, 1),
+        ROUND((SUM(other_expenses) - SUM(budgeted_other_expenses))
+              / NULLIF(SUM(budgeted_other_expenses), 0) * 100, 1)
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period <  DATE_TRUNC('MONTH', CURRENT_DATE())
+      ORDER BY variance_pct DESC
+
+  # ---------- HR landing-page patterns ----------
+  - id: q07_utilization_reduced
+    spaces: [v2_management]
+    question_variants:
+      - "Why did utilization reduce?"
+      - "Why is utilization down?"
+      - "Why did year-to-date utilization decrease?"
+      - "Which practice areas have lowest utilization?"
+    sql: |
+      -- Monthly utilization by practice area for the last 12 complete fiscal months.
+      -- Genie can scope to a specific practice via entity matching.
+      SELECT
+        DATE_TRUNC('MONTH', work_date) AS fiscal_period,
+        practice_area,
+        ROUND(SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END) /
+              NULLIF(SUM(hours_worked), 0) * 100, 1) AS utilization_pct,
+        ROUND(SUM(hours_worked) / 1e3, 0) AS total_hours_k,
+        ROUND(SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END) / 1e3, 0) AS billable_hours_k
+      FROM main.cfo_proserv.silver_fact_timecards
+      WHERE work_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -12)
+        AND work_date < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY DATE_TRUNC('MONTH', work_date), practice_area
+      ORDER BY fiscal_period DESC, utilization_pct ASC
+      LIMIT 50
+
+  - id: q08_bench_costs_rising
+    spaces: [v2_management]
+    question_variants:
+      - "Why are bench costs rising?"
+      - "Why is the cost of unbilled hours increasing?"
+      - "Why are non-billable costs going up?"
+    sql: |
+      -- Monthly bench cost by practice for the last 12 complete fiscal months.
+      -- IMPORTANT: bench_cost_mm is computed as hours_worked × cost_rate (NOT
+      -- summed from cost_amount). The silver fact table zeroes cost_amount for
+      -- non-billable timecards by design (so gold_project_profitability margins
+      -- reflect billable-only economics). Without the on-the-fly multiplication,
+      -- bench cost would read as $0 for any month outside the recent
+      -- billable→bench reclassification window, producing a fake "$0 → $1.65M"
+      -- cliff that requires apology prose to explain away.
+      SELECT
+        DATE_TRUNC('MONTH', work_date) AS fiscal_period,
+        practice_area,
+        ROUND(SUM(CASE WHEN time_type_clean = 'Non-Billable' THEN hours_worked ELSE 0 END) / 1e3, 1) AS bench_hours_k,
+        ROUND(SUM(CASE WHEN time_type_clean = 'Non-Billable' THEN hours_worked * cost_rate ELSE 0 END) / 1e6, 2) AS bench_cost_mm,
+        ROUND(SUM(CASE WHEN time_type_clean = 'Non-Billable' THEN hours_worked ELSE 0 END) /
+              NULLIF(SUM(hours_worked), 0) * 100, 1) AS bench_pct_of_total
+      FROM main.cfo_proserv.silver_fact_timecards
+      WHERE work_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -12)
+        AND work_date < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY DATE_TRUNC('MONTH', work_date), practice_area
+      ORDER BY fiscal_period DESC, bench_cost_mm DESC
+      LIMIT 30
+
+  - id: q09_projects_over_plan
+    spaces: [v2_analytics]
+    question_variants:
+      - "Which projects are running significantly over plan?"
+      - "Show me the projects with the biggest hours overruns"
+      - "Which projects are over budget on hours?"
+    sql: |
+      -- Projects with significant hours overrun. is_active and threshold-based.
+      SELECT
+        project_name,
+        client_name,
+        practice_area,
+        location,
+        lead_partner_name,
+        planned_hours,
+        ROUND(actual_hours, 0) AS actual_hours,
+        ROUND(actual_hours - planned_hours, 0) AS hours_overrun,
+        ROUND((actual_hours / NULLIF(planned_hours, 0) - 1) * 100, 0) AS overrun_pct,
+        team_size,
+        project_status,
+        project_start_date
+      FROM main.cfo_proserv.gold_project_profitability
+      WHERE is_active = TRUE
+        AND planned_hours > 0
+        AND actual_hours > planned_hours * 1.3
+      ORDER BY hours_overrun DESC
+      LIMIT 15
+
+  # ---------- Finance deep-dive patterns ----------
+  - id: q10_firmwide_revenue_trend
+    spaces: [v2_management]
+    question_variants:
+      - "Why did firmwide revenues underperform forecast?"
+      - "Why did firmwide revenue dip?"
+      - "Show firmwide revenue trend vs forecast"
+    sql: |
+      -- Firmwide revenue vs forecast over the last 6 complete fiscal months.
+      -- Genie can scope to a specific month via entity matching.
+      SELECT
+        fiscal_period,
+        ROUND(SUM(total_revenue) / 1e6, 1) AS revenue_mm,
+        ROUND(SUM(budgeted_revenue) / 1e6, 1) AS forecast_mm,
+        ROUND((SUM(total_revenue) / NULLIF(SUM(budgeted_revenue), 0) - 1) * 100, 1) AS variance_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6)
+        AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY fiscal_period
+      ORDER BY fiscal_period
+
+  - id: q11_firmwide_expenses_over_forecast
+    spaces: [v2_management]
+    question_variants:
+      - "Why are firmwide expenses tracking over forecast?"
+      - "Why are firmwide expenses over budget?"
+      - "Why are total expenses over forecast?"
+    sql: |
+      SELECT
+        fiscal_period,
+        ROUND(SUM(billable_expenses) / 1e6, 1) AS billable_mm,
+        ROUND(SUM(corporate_expenses) / 1e6, 1) AS corporate_mm,
+        ROUND(SUM(marketing_expenses) / 1e6, 1) AS marketing_mm,
+        ROUND(SUM(tech_expenses) / 1e6, 1) AS tech_mm,
+        ROUND(SUM(other_expenses) / 1e6, 1) AS other_mm,
+        ROUND(SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) / 1e6, 1) AS total_actual_mm,
+        ROUND(SUM(budgeted_expenses) / 1e6, 1) AS total_budget_mm,
+        ROUND((SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) /
+               NULLIF(SUM(budgeted_expenses), 0) - 1) * 100, 1) AS over_budget_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -7)
+        AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
+      GROUP BY fiscal_period
+      ORDER BY fiscal_period DESC
+
+  # ---------- Admin deep-dive patterns ----------
+  - id: q13_office_performance_compare
+    spaces: [v2_management]
+    question_variants:
+      - "Compare office performance"
+      - "Which offices are most profitable?"
+      - "How do offices compare on revenue and expenses?"
+    sql: |
+      -- Per-office revenue / expenses / margin for the most recent
+      -- complete fiscal month. Genie can scope to specific offices
+      -- via entity matching.
+      SELECT
+        location,
+        ROUND(SUM(total_revenue) / 1e6, 1) AS revenue_mm,
+        ROUND(SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) / 1e6, 1) AS expenses_mm,
+        ROUND(SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) /
+              NULLIF(SUM(total_revenue), 0) * 100, 1) AS expense_ratio_pct,
+        ROUND((SUM(total_revenue) - SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses)) / 1e6, 1) AS gross_profit_mm,
+        ROUND((SUM(total_revenue) - SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses)) /
+              NULLIF(SUM(total_revenue), 0) * 100, 1) AS gross_margin_pct
+      FROM main.cfo_proserv.gold_regional_pnl
+      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+      GROUP BY location
+      ORDER BY gross_margin_pct DESC
+
+  # ---------- Follow-up drill-down patterns ----------
+  - id: q15_partner_growth_classification
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "What drove partner growth — were these lateral hires or internal promotions?"
+      - "Were the new partners lateral hires or internal promotions?"
+      - "How did a practice grow partners month over month?"
+      - "What is the breakdown of new partners by lateral vs promotion?"
+    sql: |
+      -- Classify newly-Partner-level employees in the most recent complete
+      -- fiscal month by comparing to the prior month's snapshot for the
+      -- SAME employee_id. A "promotion" is an existing employee whose
+      -- job_level moved up to Partner. A "lateral hire" is an employee_id
+      -- that did not appear in any earlier snapshot. NEVER use
+      -- hire_date == effective_date as the lateral signal — promoted
+      -- employees retain their original hire_date.
+      WITH current_month AS (
+        SELECT ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) AS m_start
+      ),
+      prior_month AS (
+        SELECT ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2) AS m_start
+      ),
+      current_partners AS (
+        SELECT DISTINCT e.employee_id, e.hire_date, e.location, e.region, e.practice_area
+        FROM main.cfo_proserv.silver_dim_employees e, current_month c
+        WHERE e.job_level = 'Partner'
+          AND e.employment_status = 'Active'
+          AND DATE_TRUNC('MONTH', e.snapshot_date) = c.m_start
+      ),
+      prior_employees AS (
+        SELECT e.employee_id, e.job_level
+        FROM main.cfo_proserv.silver_dim_employees e, prior_month p
+        WHERE DATE_TRUNC('MONTH', e.snapshot_date) = p.m_start
+      ),
+      ever_seen_before_current AS (
+        SELECT DISTINCT e.employee_id
+        FROM main.cfo_proserv.silver_dim_employees e, current_month c
+        WHERE DATE_TRUNC('MONTH', e.snapshot_date) < c.m_start
+      ),
+      classified AS (
+        SELECT
+          cp.employee_id,
+          cp.practice_area,
+          cp.location,
+          cp.region,
+          CASE
+            WHEN s.employee_id IS NULL THEN 'Lateral hire (new to firm)'
+            WHEN pe.job_level = 'Partner' THEN 'Existing partner (carryover)'
+            WHEN pe.job_level IS NOT NULL THEN CONCAT('Promotion from ', pe.job_level)
+            ELSE 'Promotion (prior level unknown)'
+          END AS classification
+        FROM current_partners cp
+        LEFT JOIN prior_employees pe ON cp.employee_id = pe.employee_id
+        LEFT JOIN ever_seen_before_current s ON cp.employee_id = s.employee_id
+      )
+      SELECT
+        classification,
+        practice_area,
+        COUNT(*) AS partner_count,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS pct_of_total
+      FROM classified
+      GROUP BY classification, practice_area
+      ORDER BY classification, partner_count DESC
+
+  - id: q14_unbilled_work_by_office
+    spaces: [v2_analytics]
+    question_variants:
+      - "Show me what's included in the unbilled work"
+      - "What's included in the unbilled work?"
+      - "Show unbilled AR detail by office"
+    sql: |
+      -- Detail of unpaid AR by office. Genie can scope to a specific
+      -- office via entity matching on the location column.
+      SELECT
+        ar.location,
+        ar.customer_name,
+        ar.invoice_number,
+        ar.invoice_date,
+        ROUND(ar.amount / 1e3, 0) AS amount_k,
+        ar.aging_bucket,
+        ar.days_outstanding,
+        ar.lead_partner_name,
+        ar.payment_status
+      FROM main.cfo_proserv.silver_fact_accounts_receivable ar
+      WHERE UPPER(COALESCE(ar.payment_status, '')) NOT IN ('PAID', 'CLOSED')
+      ORDER BY ar.amount DESC
+      LIMIT 50
+
+  # ---------- Firmwide tile queries (match Finance + Admin Overview dashboards) ----------
+  - id: q16_top_unpaid_clients
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "Who are the top unpaid clients?"
+      - "Which clients have the largest unpaid balance?"
+      - "Top 5 clients by aged unpaid AR"
+      - "Top unpaid clients firmwide"
+      - "Which customers owe us the most?"
+    sql: |
+      -- Top unpaid clients — total unpaid AR per customer, with invoice count
+      -- and aging stats. Sums unpaid invoices in silver_fact_accounts_receivable
+      -- (payment_status NOT IN ('Paid','Closed')) and ranks by total unpaid $.
+      -- The "value" cell in the Finance landing-page Top Unpaid Client tile is
+      -- the #1 customer's total_unpaid_mm. The narrative cites the top 5.
+      SELECT
+        customer_name,
+        ROUND(SUM(amount) / 1e6, 2) AS total_unpaid_mm,
+        COUNT(*) AS unpaid_invoice_count,
+        ROUND(AVG(days_outstanding), 1) AS avg_days_outstanding,
+        MAX(days_outstanding) AS max_days_outstanding
+      FROM main.cfo_proserv.silver_fact_accounts_receivable
+      WHERE payment_status NOT IN ('Paid', 'Closed')
+      GROUP BY customer_name
+      ORDER BY total_unpaid_mm DESC
+      LIMIT 10
+
+  - id: q17_top_unpaid_vendors
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "Who are the top unpaid vendors?"
+      - "Which vendors have the largest unpaid balance?"
+      - "Top 5 vendors by aged unpaid AP"
+      - "Top unpaid vendors firmwide"
+      - "Which vendors are we paying the most?"
+    sql: |
+      -- Top unpaid vendors — total unpaid AP per vendor, with invoice count
+      -- and aging stats. Sums unpaid payables in silver_fact_accounts_payable
+      -- and ranks by total amount due. Mirrors q16_top_unpaid_clients but on
+      -- the AP side. The "value" cell in the Finance landing-page Top Unpaid
+      -- Vendor tile is the #1 vendor's total_unpaid_mm; the narrative cites
+      -- the top 5.
+      SELECT
+        vendor_name,
+        ROUND(SUM(amount_due) / 1e6, 2) AS total_unpaid_mm,
+        COUNT(*) AS unpaid_invoice_count,
+        ROUND(AVG(days_outstanding), 1) AS avg_days_outstanding,
+        MAX(days_outstanding) AS max_days_outstanding
+      FROM main.cfo_proserv.silver_fact_accounts_payable
+      WHERE UPPER(COALESCE(payment_status, '')) NOT IN ('PAID', 'CLOSED')
+      GROUP BY vendor_name
+      ORDER BY total_unpaid_mm DESC
+      LIMIT 10
+
+  - id: q19_partner_headcount_mom
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "What is the current firmwide partner headcount?"
+      - "What is the current partner headcount?"
+      - "How many partners do we have?"
+      - "Partner headcount MoM"
+      - "How many active partners are at the firm?"
+      - "Strict Partner count"
+    sql: |
+      -- Strict Partner headcount — canonical formula: COUNT(DISTINCT employee_id)
+      -- on silver_dim_employees filtered to job_level='Partner' AND
+      -- employment_status='Active' at the latest snapshot. Matches the Admin
+      -- Overview dashboard's "Partner Headcount" tile.
+      -- IMPORTANT: the employment_status='Active' filter is REQUIRED — without
+      -- it, terminated employees that still appear in the latest snapshot get
+      -- counted, inflating headcount by ~25% (e.g., 3,072 vs the correct 2,473).
+      -- Strict Partner only — excludes Senior Partner, Associate Partner,
+      -- Director, Engagement Manager, Associate, Business Analyst.
+      WITH max_snap AS (
+        SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv.silver_dim_employees
+      ),
+      prior_snap AS (
+        SELECT MAX(snapshot_date) AS prior_date
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE snapshot_date <= DATE_SUB(max_date, 30)
+      ),
+      current_partners AS (
+        SELECT COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, max_snap
+        WHERE job_level = 'Partner'
+          AND snapshot_date = max_date
+          AND employment_status = 'Active'
+      ),
+      previous_partners AS (
+        SELECT COUNT(DISTINCT employee_id) AS partner_count
+        FROM main.cfo_proserv.silver_dim_employees, prior_snap
+        WHERE job_level = 'Partner'
+          AND snapshot_date = prior_date
+          AND employment_status = 'Active'
+      )
+      SELECT
+        c.partner_count AS current_partner_count,
+        p.partner_count AS previous_partner_count,
+        c.partner_count - p.partner_count AS mom_change,
+        ROUND((c.partner_count - p.partner_count) * 100.0 / NULLIF(p.partner_count, 0), 2) AS mom_pct_change
+      FROM current_partners c CROSS JOIN previous_partners p
+
+  - id: q19b_partner_headcount_by_practice
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "How many partners does each practice have?"
+      - "Partner headcount by practice area"
+      - "Strict Partner count by practice"
+      - "How many partners are in Technology?"
+      - "How many partners are in Tax?"
+      - "Partners per practice area"
+      - "Active partner count by practice and region"
+    sql: |
+      -- Strict Partner headcount BY practice (optionally by region) — canonical
+      -- formula: COUNT(DISTINCT employee_id) on silver_dim_employees with
+      -- job_level='Partner' AND employment_status='Active' at the latest snapshot.
+      -- DO NOT use COUNT(DISTINCT lead_partner_id) from gold_project_profitability
+      -- or any timecard-grain count — both inflate the number (project-lead pool
+      -- includes Senior Partner + Associate Partner, and timecards
+      -- double-count partners working across multiple practices in a month).
+      WITH max_snap AS (
+        SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv.silver_dim_employees
+      )
+      SELECT
+        practice_area,
+        region,
+        COUNT(DISTINCT employee_id) AS partner_count
+      FROM main.cfo_proserv.silver_dim_employees, max_snap
+      WHERE job_level = 'Partner'
+        AND snapshot_date = max_date
+        AND employment_status = 'Active'
+      GROUP BY practice_area, region
+      ORDER BY practice_area, region
+
+  - id: q18_project_gross_margins_qoq
+    spaces: [v2_analytics, v2_management]
+    question_variants:
+      - "What is the current firmwide project gross margin?"
+      - "What is the project gross margin?"
+      - "How are project gross margins trending QoQ?"
+      - "Project gross margin QoQ"
+      - "Is firmwide project margin improving or declining?"
+    sql: |
+      -- Firmwide project gross margin — last 90 days vs prior 90 days.
+      -- Matches the Admin Overview dashboard's "Project Gross Margins" tile.
+      -- Use this for the firmwide tile value; use q02_project_gross_margins_reduced
+      -- for project-level drill-downs (which projects are dragging margin?).
+      WITH current_margins AS (
+        SELECT SUM(actual_margin) / NULLIF(SUM(actual_revenue), 0) AS avg_margin
+        FROM main.cfo_proserv.gold_project_profitability
+        WHERE project_end_date >= DATE_SUB(CURRENT_DATE(), 90)
+      ),
+      previous_margins AS (
+        SELECT SUM(actual_margin) / NULLIF(SUM(actual_revenue), 0) AS avg_margin
+        FROM main.cfo_proserv.gold_project_profitability
+        WHERE project_end_date BETWEEN DATE_SUB(CURRENT_DATE(), 180) AND DATE_SUB(CURRENT_DATE(), 90)
+      )
+      SELECT
+        ROUND(c.avg_margin * 100, 2) AS current_margin_pct,
+        ROUND(p.avg_margin * 100, 2) AS previous_margin_pct,
+        ROUND((c.avg_margin - p.avg_margin) * 100, 2) AS qoq_change_pp
+      FROM current_margins c CROSS JOIN previous_margins p

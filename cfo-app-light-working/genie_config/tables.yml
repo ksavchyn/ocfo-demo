@@ -1,0 +1,86 @@
+# Genie space table inventory.
+# Per-space table list — fully qualified names. The apply script auto-populates
+# column_configs by DESCRIBE-ing each table at apply time so column lists stay
+# in sync with the actual schema.
+#
+# Inventory rationale: cfo_demo_genie_table_inventory.md memory file.
+#
+# Joins: per-space `<space_name>_joins` sections declare fact↔dim relationships.
+# Each entry is {left_table, right_table, on} which apply_genie_config.py
+# packs into serialized_space.instructions.joins.
+
+v2_analytics:
+  # Financial / strategic / partner-level
+  - main.cfo_proserv.gold_enterprise_metrics
+  - main.cfo_proserv.gold_project_profitability
+  - main.cfo_proserv.gold_partner_metrics
+  - main.cfo_proserv.gold_practice_area_summary
+  - main.cfo_proserv.gold_receivables_wip_aging
+  - main.cfo_proserv.gold_ar_snapshot_aging
+  - main.cfo_proserv.silver_dim_employees
+  - main.cfo_proserv.silver_dim_projects
+  - main.cfo_proserv.silver_dim_clients
+  - main.cfo_proserv.silver_fact_accounts_receivable
+  - main.cfo_proserv.silver_fact_timecards
+  # Metric view — canonical KPI definitions (RPP, DSO, utilization, margin)
+  - main.cfo_proserv.firm_kpis_mv
+
+v2_analytics_joins:
+  - left_table: main.cfo_proserv.silver_fact_accounts_receivable
+    right_table: main.cfo_proserv.silver_dim_clients
+    "on": silver_fact_accounts_receivable.customer_id = silver_dim_clients.client_id
+  - left_table: main.cfo_proserv.silver_fact_accounts_receivable
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": silver_fact_accounts_receivable.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.silver_fact_timecards
+    right_table: main.cfo_proserv.silver_dim_employees
+    "on": silver_fact_timecards.employee_id = silver_dim_employees.employee_id
+  - left_table: main.cfo_proserv.silver_fact_timecards
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": silver_fact_timecards.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.silver_dim_projects
+    right_table: main.cfo_proserv.silver_dim_clients
+    "on": silver_dim_projects.client_id = silver_dim_clients.client_id
+  - left_table: main.cfo_proserv.silver_dim_projects
+    right_table: main.cfo_proserv.silver_dim_employees
+    "on": silver_dim_projects.lead_partner_id = silver_dim_employees.employee_id
+  - left_table: main.cfo_proserv.gold_project_profitability
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": gold_project_profitability.project_id = silver_dim_projects.project_id
+
+v2_management:
+  # Operational / variance / expense-side
+  - main.cfo_proserv.gold_regional_pnl
+  - main.cfo_proserv.gold_te_contract_audit
+  - main.cfo_proserv.gold_payables_aging
+  - main.cfo_proserv.gold_ar_snapshot_aging
+  - main.cfo_proserv.gold_department_summary
+  - main.cfo_proserv.silver_fact_expenses
+  - main.cfo_proserv.silver_fact_timecards
+  - main.cfo_proserv.silver_fact_accounts_payable
+  # Dimensions for joins
+  - main.cfo_proserv.silver_dim_employees
+  - main.cfo_proserv.silver_dim_clients
+  - main.cfo_proserv.silver_dim_projects
+  # Metric view — shared with v2_analytics
+  - main.cfo_proserv.firm_kpis_mv
+
+v2_management_joins:
+  - left_table: main.cfo_proserv.silver_fact_expenses
+    right_table: main.cfo_proserv.silver_dim_employees
+    "on": silver_fact_expenses.employee_id = silver_dim_employees.employee_id
+  - left_table: main.cfo_proserv.silver_fact_expenses
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": silver_fact_expenses.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.silver_fact_accounts_payable
+    right_table: main.cfo_proserv.silver_dim_employees
+    "on": silver_fact_accounts_payable.employee_id = silver_dim_employees.employee_id
+  - left_table: main.cfo_proserv.silver_fact_timecards
+    right_table: main.cfo_proserv.silver_dim_employees
+    "on": silver_fact_timecards.employee_id = silver_dim_employees.employee_id
+  - left_table: main.cfo_proserv.silver_fact_timecards
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": silver_fact_timecards.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.silver_dim_projects
+    right_table: main.cfo_proserv.silver_dim_clients
+    "on": silver_dim_projects.client_id = silver_dim_clients.client_id

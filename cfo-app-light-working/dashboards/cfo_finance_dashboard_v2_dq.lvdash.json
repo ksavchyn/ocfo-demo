@@ -1,0 +1,3487 @@
+{
+  "datasets": [
+    {
+      "name": "enterprise_revenues_calc",
+      "displayName": "Enterprise Revenues",
+      "queryLines": [
+        "  WITH current_period AS (\n",
+        "      SELECT\n",
+        "          SUM(revenue) as total_revenue\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  ),\n",
+        "  previous_period AS (\n",
+        "      SELECT\n",
+        "          SUM(revenue) as total_revenue\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  )\n",
+        "  SELECT\n",
+        "      COALESCE(c.total_revenue, 0) as current_value,\n",
+        "      COALESCE(p.total_revenue, 0) as previous_value\n",
+        "  FROM current_period c\n",
+        "  CROSS JOIN previous_period p"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "enterprise_margins_calc",
+      "displayName": "Enterprise Margins",
+      "queryLines": [
+        "  WITH current_period AS (\n",
+        "      SELECT\n",
+        "          SUM(profit) as total_profit,\n",
+        "          SUM(revenue) as total_revenue\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  ),\n",
+        "  previous_period AS (\n",
+        "      SELECT\n",
+        "          SUM(profit) as total_profit,\n",
+        "          SUM(revenue) as total_revenue\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  )\n",
+        "  SELECT\n",
+        "      CASE\n",
+        "          WHEN COALESCE(current_period.total_revenue, 0) = 0 THEN 0\n",
+        "          ELSE (COALESCE(current_period.total_profit, 0) / COALESCE(current_period.total_revenue, 0))\n",
+        "      END as current_value,\n",
+        "      CASE\n",
+        "          WHEN COALESCE(previous_period.total_revenue, 0) = 0 THEN 0\n",
+        "          ELSE (COALESCE(previous_period.total_profit, 0) / COALESCE(previous_period.total_revenue, 0))\n",
+        "      END as previous_value\n",
+        "  FROM current_period\n",
+        "  CROSS JOIN previous_period"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "project_margins_calc",
+      "displayName": "Project Gross Margins",
+      "queryLines": [
+        "  -- Project Gross Margins: avg actual margin% for projects ending last complete month vs month before\n",
+        "  -- Divide by 100 because actual_margin_pct is stored as 10-50 range and widget formatter multiplies by 100\n",
+        "  WITH current_period AS (\n",
+        "      SELECT AVG(actual_margin_pct) / 100 AS current_value\n",
+        "      FROM main.cfo_proserv.gold_project_profitability\n",
+        "      WHERE  project_end_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "        AND project_end_date < DATE_TRUNC('MONTH', CURRENT_DATE())\n",
+        "        AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "  ),\n",
+        "  prior_period AS (\n",
+        "      SELECT AVG(actual_margin_pct) / 100 AS comparison_value\n",
+        "      FROM main.cfo_proserv.gold_project_profitability\n",
+        "      WHERE project_end_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2)\n",
+        "        AND project_end_date < ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "        AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "  )\n",
+        "  SELECT COALESCE(c.current_value, 0) AS current_value, COALESCE(p.comparison_value, 0) AS comparison_value\n",
+        "  FROM current_period c CROSS JOIN prior_period p\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "receivables_aging",
+      "displayName": "Invoice Receivables",
+      "queryLines": [
+        "  -- Invoice Receivables KPI Query: Unbilled WIP + Unpaid AR per spec (last complete month vs month before)\n",
+        "  WITH current_period AS (\n",
+        "      SELECT\n",
+        "          SUM(accounts_receivable + wip_value) as total_receivables\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  ),\n",
+        "  prior_period AS (\n",
+        "      SELECT\n",
+        "          SUM(accounts_receivable + wip_value) as total_receivables\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2)\n",
+        "        AND (:region IS NULL\n",
+        "             OR array_size(:region) = 0\n",
+        "             OR array_contains(:region, 'All')\n",
+        "             OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL\n",
+        "             OR array_size(:location) = 0\n",
+        "             OR array_contains(:location, 'All')\n",
+        "             OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL\n",
+        "             OR array_size(:practice_area) = 0\n",
+        "             OR array_contains(:practice_area, 'All')\n",
+        "             OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL\n",
+        "             OR array_size(:industry) = 0\n",
+        "             OR array_contains(:industry, 'All')\n",
+        "             OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL\n",
+        "             OR array_size(:customer) = 0\n",
+        "             OR array_contains(:customer, 'All')\n",
+        "             OR array_contains(:customer, customer))\n",
+        "  )\n",
+        "  SELECT\n",
+        "      COALESCE(current_period.total_receivables, 0) as current_value,\n",
+        "      COALESCE(prior_period.total_receivables, 0) as comparison_value,\n",
+        "      CASE\n",
+        "          WHEN COALESCE(prior_period.total_receivables, 0) = 0 THEN 0\n",
+        "          ELSE ((COALESCE(current_period.total_receivables, 0) - COALESCE(prior_period.total_receivables, 0)) /\n",
+        "                COALESCE(prior_period.total_receivables, 0) * 100)\n",
+        "      END as percent_change\n",
+        "  FROM current_period, prior_period"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "dso_calculation",
+      "displayName": "Days Sales Outstanding",
+      "queryLines": [
+        "  -- DSO KPI Query (last complete month vs month before)\n",
+        "  WITH current_period AS (\n",
+        "      SELECT\n",
+        "          SUM(accounts_receivable) as total_receivables,\n",
+        "          SUM(revenue) as total_revenue,\n",
+        "          30 as days_in_period\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "      AND (:region IS NULL\n",
+        "           OR array_size(:region) = 0\n",
+        "           OR array_contains(:region, 'All')\n",
+        "           OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL\n",
+        "           OR array_size(:location) = 0\n",
+        "           OR array_contains(:location, 'All')\n",
+        "           OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL\n",
+        "           OR array_size(:practice_area) = 0\n",
+        "           OR array_contains(:practice_area, 'All')\n",
+        "           OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL\n",
+        "           OR array_size(:industry) = 0\n",
+        "           OR array_contains(:industry, 'All')\n",
+        "           OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL\n",
+        "           OR array_size(:customer) = 0\n",
+        "           OR array_contains(:customer, 'All')\n",
+        "           OR array_contains(:customer, customer))\n",
+        "  ),\n",
+        "  previous_period AS (\n",
+        "      SELECT\n",
+        "          SUM(accounts_receivable) as total_receivables,\n",
+        "          SUM(revenue) as total_revenue,\n",
+        "          30 as days_in_period\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -2)\n",
+        "      AND (:region IS NULL\n",
+        "           OR array_size(:region) = 0\n",
+        "           OR array_contains(:region, 'All')\n",
+        "           OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL\n",
+        "           OR array_size(:location) = 0\n",
+        "           OR array_contains(:location, 'All')\n",
+        "           OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL\n",
+        "           OR array_size(:practice_area) = 0\n",
+        "           OR array_contains(:practice_area, 'All')\n",
+        "           OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL\n",
+        "           OR array_size(:industry) = 0\n",
+        "           OR array_contains(:industry, 'All')\n",
+        "           OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL\n",
+        "           OR array_size(:customer) = 0\n",
+        "           OR array_contains(:customer, 'All')\n",
+        "           OR array_contains(:customer, customer))\n",
+        "  )\n",
+        "  SELECT\n",
+        "      ROUND((c.total_receivables / NULLIF(c.total_revenue, 0)) * c.days_in_period, 1) as current_dso,\n",
+        "      ROUND((p.total_receivables / NULLIF(p.total_revenue, 0)) * p.days_in_period, 1) as previous_dso,\n",
+        "      ROUND(((c.total_receivables / NULLIF(c.total_revenue, 0)) * c.days_in_period) -\n",
+        "            ((p.total_receivables / NULLIF(p.total_revenue, 0)) * p.days_in_period), 1) as dso_change\n",
+        "  FROM current_period c\n",
+        "  CROSS JOIN previous_period p"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "revenue_trends_monthly",
+      "displayName": "Revenue Trends",
+      "queryLines": [
+        "  WITH months_data AS (\n",
+        "      -- Get actual historical data (last 6 months: 2025-09 through 2026-02)\n",
+        "      SELECT\n",
+        "        DATE_FORMAT(fiscal_period, 'yyyy-MM') as month,\n",
+        "        SUM(CASE WHEN revenue_type = 'Billable' THEN total_revenue ELSE 0 END) as billable_revenue,\n",
+        "        SUM(CASE WHEN revenue_type = 'Products' THEN total_revenue ELSE 0 END) as products_revenue,\n",
+        "        SUM(CASE WHEN revenue_type = 'Partnerships' THEN total_revenue ELSE 0 END) as partnerships_revenue,\n",
+        "        SUM(CASE WHEN revenue_type = 'Other' THEN total_revenue ELSE 0 END) as other_revenue,\n",
+        "        SUM(total_revenue) as total_revenue,\n",
+        "        SUM(budgeted_revenue) as budgeted_revenue,\n",
+        "        'historical' as period_type\n",
+        "      FROM main.cfo_proserv.gold_regional_pnl\n",
+        "      WHERE\n",
+        "        fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6) AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())\n",
+        "        AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area,\n",
+        "  practice_area))\n",
+        "        AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "      GROUP BY DATE_FORMAT(fiscal_period, 'yyyy-MM')\n",
+        "    ),\n",
+        "    budget_trend AS (\n",
+        "      -- Calculate growth trend from budgeted revenue for future projections\n",
+        "      SELECT\n",
+        "        AVG(budgeted_revenue) as avg_budget,\n",
+        "        MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN budgeted_revenue END) as last_month_budget,\n",
+        "        -- Get last actual values for each revenue type for projections\n",
+        "        MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN billable_revenue END) as last_billable,\n",
+        "        MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN products_revenue END) as last_products,\n",
+        "        MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN partnerships_revenue END) as last_partnerships,\n",
+        "        MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN other_revenue END) as last_other\n",
+        "      FROM months_data\n",
+        "      WHERE month >= DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -3), 'yyyy-MM')\n",
+        "    ),\n",
+        "    future_months AS (\n",
+        "      -- Generate future months (2026-03 through 2026-08)\n",
+        "      SELECT\n",
+        "        DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), CAST(row_number() OVER (ORDER BY 1) - 1 AS INT)), 'yyyy-MM') as month,\n",
+        "        NULL as billable_revenue,\n",
+        "        NULL as products_revenue,\n",
+        "        NULL as partnerships_revenue,\n",
+        "        NULL as other_revenue,\n",
+        "        0 as total_revenue,\n",
+        "        0 as budgeted_revenue,\n",
+        "        'future' as period_type,\n",
+        "        row_number() OVER (ORDER BY 1) as month_offset\n",
+        "      FROM (SELECT 1 FROM VALUES (1),(2),(3),(4),(5),(6))\n",
+        "    ),\n",
+        "    all_months AS (\n",
+        "      SELECT month, billable_revenue, products_revenue, partnerships_revenue, other_revenue, total_revenue, budgeted_revenue, period_type, 0 as\n",
+        "  month_offset\n",
+        "      FROM months_data\n",
+        "      UNION ALL\n",
+        "      SELECT month, billable_revenue, products_revenue, partnerships_revenue, other_revenue, total_revenue, budgeted_revenue, period_type,\n",
+        "  month_offset\n",
+        "      FROM future_months\n",
+        "    )\n",
+        "    SELECT\n",
+        "      m.month,\n",
+        "      m.period_type,\n",
+        "      -- Historical actuals (NULL for future months so they don't show as bars)\n",
+        "      m.billable_revenue,\n",
+        "      m.products_revenue,\n",
+        "      m.partnerships_revenue,\n",
+        "      m.other_revenue,\n",
+        "\n",
+        "      -- Forecast columns (NULL for historical months, projected values for future)\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_billable * POWER(1.03, m.month_offset)  -- 3% growth\n",
+        "        ELSE NULL\n",
+        "      END as billable_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_products * POWER(1.025, m.month_offset)  -- 2.5% growth\n",
+        "        ELSE NULL\n",
+        "      END as products_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_partnerships * POWER(1.02, m.month_offset)  -- 2% growth\n",
+        "        ELSE NULL\n",
+        "      END as partnerships_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_other * POWER(1.015, m.month_offset)  -- 1.5% growth\n",
+        "        ELSE NULL\n",
+        "      END as other_revenue_forecast,\n",
+        "\n",
+        "      -- Line for projected total (shows for all months)\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'historical' THEN m.budgeted_revenue\n",
+        "        ELSE b.last_month_budget * POWER(1.025, m.month_offset)  -- 2.5% monthly growth from last budget\n",
+        "      END as projected_revenue\n",
+        "    FROM all_months m\n",
+        "    CROSS JOIN budget_trend b\n",
+        "    ORDER BY m.month\n",
+        "\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "firmwide_receivables_aging",
+      "displayName": "Firmwide Receivables by Aging",
+      "queryLines": [
+        " -- Firmwide Receivables by Aging\n",
+        "  SELECT\n",
+        "    aging_bucket,\n",
+        "    SUM(CASE WHEN category = 'Client Invoice' THEN amount ELSE 0 END) AS client_invoices,\n",
+        "    SUM(CASE WHEN category = 'Contractor' THEN amount ELSE 0 END) AS contractors,\n",
+        "    SUM(CASE WHEN category = 'Non-FTE Vendor' THEN amount ELSE 0 END) AS non_fte_vendors,\n",
+        "    SUM(CASE WHEN category = 'Other' THEN amount ELSE 0 END) AS other\n",
+        "  FROM main.cfo_proserv.gold_receivables_wip_aging\n",
+        "  WHERE\n",
+        "    (:region IS NULL\n",
+        "     OR array_size(:region) = 0\n",
+        "     OR array_contains(:region, 'All')\n",
+        "     OR array_contains(:region, region))\n",
+        "    AND (:location IS NULL\n",
+        "     OR array_size(:location) = 0\n",
+        "     OR array_contains(:location, 'All')\n",
+        "     OR array_contains(:location, location))\n",
+        "    AND (:practice_area IS NULL\n",
+        "     OR array_size(:practice_area) = 0\n",
+        "     OR array_contains(:practice_area, 'All')\n",
+        "     OR array_contains(:practice_area, practice_area))\n",
+        "    AND (:industry IS NULL\n",
+        "     OR array_size(:industry) = 0\n",
+        "     OR array_contains(:industry, 'All')\n",
+        "     OR array_contains(:industry, industry))\n",
+        "    AND (:customer IS NULL\n",
+        "     OR array_size(:customer) = 0\n",
+        "     OR array_contains(:customer, 'All')\n",
+        "     OR array_contains(:customer, customer))\n",
+        "  GROUP BY aging_bucket\n",
+        "  ORDER BY\n",
+        "    CASE\n",
+        "      WHEN aging_bucket = '0-30 days' THEN 1\n",
+        "      WHEN aging_bucket = '31-60 days' THEN 2\n",
+        "      WHEN aging_bucket = '61-90 days' THEN 3\n",
+        "      WHEN aging_bucket = '90+ days' THEN 4\n",
+        "      ELSE 5\n",
+        "    END"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "firmwide_payables_status",
+      "displayName": "Firmwide Payables by Status",
+      "queryLines": [
+        "  -- Firmwide Payables by Aging\n",
+        "  SELECT\n",
+        "    aging_bucket,\n",
+        "    SUM(CASE WHEN vendor_classification = 'Contractors' THEN amount_due ELSE 0 END) AS contractors,\n",
+        "    SUM(CASE WHEN vendor_classification = 'IT & Technology' THEN amount_due ELSE 0 END) AS it_technology,\n",
+        "    SUM(CASE WHEN vendor_classification = 'Marketing & Brand Management' THEN amount_due ELSE 0 END) AS marketing_brand_management,\n",
+        "    SUM(CASE WHEN vendor_classification = 'Professional & Legal Services' THEN amount_due ELSE 0 END) AS professional_legal_services,\n",
+        "    SUM(CASE WHEN vendor_classification = 'Real Estate & Facilities' THEN amount_due ELSE 0 END) AS real_estate_facilities\n",
+        "  FROM main.cfo_proserv.gold_payables_aging\n",
+        "  WHERE\n",
+        "    (:region IS NULL\n",
+        "     OR array_size(:region) = 0\n",
+        "     OR array_contains(:region, 'All')\n",
+        "     OR array_contains(:region, region))\n",
+        "    AND (:location IS NULL\n",
+        "     OR array_size(:location) = 0\n",
+        "     OR array_contains(:location, 'All')\n",
+        "     OR array_contains(:location, location))\n",
+        "    AND (:practice_area IS NULL\n",
+        "     OR array_size(:practice_area) = 0\n",
+        "     OR array_contains(:practice_area, 'All')\n",
+        "     OR array_contains(:practice_area, practice_area))\n",
+        "    AND (:industry IS NULL\n",
+        "     OR array_size(:industry) = 0\n",
+        "     OR array_contains(:industry, 'All')\n",
+        "     OR array_contains(:industry, industry))\n",
+        "    AND (:customer IS NULL\n",
+        "     OR array_size(:customer) = 0\n",
+        "     OR array_contains(:customer, 'All')\n",
+        "     OR array_contains(:customer, customer))\n",
+        "  GROUP BY aging_bucket\n",
+        "  ORDER BY\n",
+        "    CASE\n",
+        "      WHEN aging_bucket = '0-30 days' THEN 1\n",
+        "      WHEN aging_bucket = '31-60 days' THEN 2\n",
+        "      WHEN aging_bucket = '61-90 days' THEN 3\n",
+        "      WHEN aging_bucket = '90+ days' THEN 4\n",
+        "      ELSE 5\n",
+        "    END"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04073ea6",
+      "displayName": "regions_list",
+      "queryLines": [
+        " SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          region as value,\n",
+        "          region as label\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE region IS NOT NULL\n",
+        "  ) t\n",
+        "  ORDER BY value"
+      ]
+    },
+    {
+      "name": "c253db78",
+      "displayName": "locations_list",
+      "queryLines": [
+        " SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          location as value,\n",
+        "          location as label\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE location IS NOT NULL\n",
+        "  ) t\n",
+        "  ORDER BY value"
+      ]
+    },
+    {
+      "name": "d1288541",
+      "displayName": "practice_area_list",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          practice_area as value,\n",
+        "          practice_area as label\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE practice_area IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "dca01f88",
+      "displayName": "industry_list",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          industry as value,\n",
+        "          industry as label\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE industry IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "318a5fad",
+      "displayName": "customer_list",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          customer as value,\n",
+        "          customer as label\n",
+        "      FROM main.cfo_proserv.gold_enterprise_metrics\n",
+        "      WHERE customer IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "4f8f68e0",
+      "displayName": "test-expenses-2",
+      "queryLines": [
+        "  WITH months_data AS (\n",
+        "      -- Get actual historical data (last 6 complete months)\n",
+        "      SELECT\n",
+        "        DATE_TRUNC('MONTH', fiscal_period) as month,\n",
+        "        SUM(billable_expenses)  as billable_expenses,\n",
+        "        SUM(corporate_expenses) as corporate_expenses,\n",
+        "        SUM(marketing_expenses) as marketing_expenses,\n",
+        "        SUM(tech_expenses)      as tech_expenses,\n",
+        "        SUM(other_expenses)     as other_expenses,\n",
+        "        SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) as total_expenses,\n",
+        "        SUM(budgeted_expenses)  as budgeted_expenses,\n",
+        "        'historical' as period_type\n",
+        "      FROM main.cfo_proserv.gold_regional_pnl\n",
+        "      WHERE\n",
+        "        fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6) AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())\n",
+        "        AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "        AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "        AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "      GROUP BY DATE_TRUNC('MONTH', fiscal_period)\n",
+        "    ),\n",
+        "    budget_trend AS (\n",
+        "      SELECT\n",
+        "        AVG(budgeted_expenses) as avg_budget,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN budgeted_expenses END) as last_month_budget,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN billable_expenses  END) as last_billable,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN corporate_expenses END) as last_corporate,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN marketing_expenses END) as last_marketing,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN tech_expenses      END) as last_tech,\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN other_expenses     END) as last_other\n",
+        "      FROM months_data\n",
+        "      WHERE month >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -3)\n",
+        "    ),\n",
+        "    future_months AS (\n",
+        "      SELECT\n",
+        "        ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), CAST(row_number() OVER (ORDER BY 1) - 1 AS INT)) as month,\n",
+        "        CAST(NULL AS DOUBLE) as billable_expenses,\n",
+        "        CAST(NULL AS DOUBLE) as corporate_expenses,\n",
+        "        CAST(NULL AS DOUBLE) as marketing_expenses,\n",
+        "        CAST(NULL AS DOUBLE) as tech_expenses,\n",
+        "        CAST(NULL AS DOUBLE) as other_expenses,\n",
+        "        0 as total_expenses,\n",
+        "        0 as budgeted_expenses,\n",
+        "        'future' as period_type,\n",
+        "        row_number() OVER (ORDER BY 1) as month_offset\n",
+        "      FROM (SELECT 1 FROM VALUES (1),(2),(3),(4),(5),(6))\n",
+        "    ),\n",
+        "    all_months AS (\n",
+        "      SELECT month, billable_expenses, corporate_expenses, marketing_expenses, tech_expenses, other_expenses, total_expenses, budgeted_expenses, period_type, 0 as month_offset\n",
+        "      FROM months_data\n",
+        "      UNION ALL\n",
+        "      SELECT month, billable_expenses, corporate_expenses, marketing_expenses, tech_expenses, other_expenses, total_expenses, budgeted_expenses, period_type, month_offset\n",
+        "      FROM future_months\n",
+        "    )\n",
+        "    SELECT\n",
+        "      m.month,\n",
+        "      m.period_type,\n",
+        "      m.billable_expenses,\n",
+        "      m.corporate_expenses,\n",
+        "      m.marketing_expenses,\n",
+        "      m.tech_expenses,\n",
+        "      m.other_expenses,\n",
+        "      CASE WHEN m.period_type = 'future' THEN b.last_billable  * POWER(1.025, m.month_offset) ELSE NULL END as billable_expenses_forecast,\n",
+        "      CASE WHEN m.period_type = 'future' THEN b.last_corporate * POWER(1.020, m.month_offset) ELSE NULL END as corporate_expenses_forecast,\n",
+        "      CASE WHEN m.period_type = 'future' THEN b.last_marketing * POWER(1.030, m.month_offset) ELSE NULL END as marketing_expenses_forecast,\n",
+        "      CASE WHEN m.period_type = 'future' THEN b.last_tech      * POWER(1.025, m.month_offset) ELSE NULL END as tech_expenses_forecast,\n",
+        "      CASE WHEN m.period_type = 'future' THEN b.last_other     * POWER(1.020, m.month_offset) ELSE NULL END as other_expenses_forecast,\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'historical' THEN m.budgeted_expenses\n",
+        "        ELSE b.last_month_budget * POWER(1.025, m.month_offset)\n",
+        "      END as budgeted_expenses\n",
+        "    FROM all_months m\n",
+        "    CROSS JOIN budget_trend b\n",
+        "    ORDER BY m.month\n",
+        "\n",
+        "\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "d4083f2e",
+      "displayName": "revenue-trends-2",
+      "queryLines": [
+        " WITH months_data AS (\n",
+        "    -- Get actual historical data (last 6 months: 2025-09 through 2026-02)\n",
+        "    SELECT\n",
+        "      DATE_FORMAT(fiscal_period, 'yyyy-MM') as month,\n",
+        "      SUM(CASE WHEN revenue_type = 'Billable' THEN total_revenue ELSE 0 END) as billable_revenue,\n",
+        "      SUM(CASE WHEN revenue_type = 'Products' THEN total_revenue ELSE 0 END) as products_revenue,\n",
+        "      SUM(CASE WHEN revenue_type = 'Partnerships' THEN total_revenue ELSE 0 END) as partnerships_revenue,\n",
+        "      SUM(CASE WHEN revenue_type = 'Other' THEN total_revenue ELSE 0 END) as other_revenue,\n",
+        "      SUM(total_revenue) as total_revenue,\n",
+        "      SUM(budgeted_revenue) as budgeted_revenue,\n",
+        "      'historical' as period_type\n",
+        "    FROM main.cfo_proserv.gold_regional_pnl\n",
+        "    WHERE\n",
+        "      fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6) AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area,\n",
+        "  practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "    GROUP BY DATE_FORMAT(fiscal_period, 'yyyy-MM')\n",
+        "  ),\n",
+        "  budget_trend AS (\n",
+        "    -- Calculate growth trend from budgeted revenue for future projections\n",
+        "    SELECT\n",
+        "      AVG(budgeted_revenue) as avg_budget,\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN budgeted_revenue END) as last_month_budget,\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN total_revenue END) as last_month_total,  -- Get actual total for reference\n",
+        "      -- Get last actual values for each revenue type for projections\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN billable_revenue END) as last_billable,\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN products_revenue END) as last_products,\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN partnerships_revenue END) as last_partnerships,\n",
+        "      MAX(CASE WHEN month = DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1), 'yyyy-MM') THEN other_revenue END) as last_other\n",
+        "    FROM months_data\n",
+        "    WHERE month >= DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -3), 'yyyy-MM')\n",
+        "  ),\n",
+        "  future_months AS (\n",
+        "    -- Generate future months (2026-03 through 2026-08)\n",
+        "    SELECT\n",
+        "      DATE_FORMAT(ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), CAST(row_number() OVER (ORDER BY 1) - 1 AS INT)), 'yyyy-MM') as month,\n",
+        "      NULL as billable_revenue,\n",
+        "      NULL as products_revenue,\n",
+        "      NULL as partnerships_revenue,\n",
+        "      NULL as other_revenue,\n",
+        "      0 as total_revenue,\n",
+        "      0 as budgeted_revenue,\n",
+        "      'future' as period_type,\n",
+        "      row_number() OVER (ORDER BY 1) as month_offset\n",
+        "    FROM (SELECT 1 FROM VALUES (1),(2),(3),(4),(5),(6))\n",
+        "  ),\n",
+        "  all_months AS (\n",
+        "    SELECT month, billable_revenue, products_revenue, partnerships_revenue, other_revenue, total_revenue, budgeted_revenue, period_type, 0 as\n",
+        "  month_offset\n",
+        "    FROM months_data\n",
+        "    UNION ALL\n",
+        "    SELECT month, billable_revenue, products_revenue, partnerships_revenue, other_revenue, total_revenue, budgeted_revenue, period_type, month_offset\n",
+        "    FROM future_months\n",
+        "  ),\n",
+        "  wide_data AS (\n",
+        "    SELECT\n",
+        "      m.month,\n",
+        "      m.period_type,\n",
+        "      -- Historical actuals (NULL for future months so they don't show as bars)\n",
+        "      m.billable_revenue,\n",
+        "      m.products_revenue,\n",
+        "      m.partnerships_revenue,\n",
+        "      m.other_revenue,\n",
+        "\n",
+        "      -- Forecast columns (NULL for historical months, projected values for future)\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_billable * POWER(1.03, m.month_offset)  -- 3% growth\n",
+        "        ELSE NULL\n",
+        "      END as billable_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_products * POWER(1.025, m.month_offset)  -- 2.5% growth\n",
+        "        ELSE NULL\n",
+        "      END as products_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_partnerships * POWER(1.02, m.month_offset)  -- 2% growth\n",
+        "        ELSE NULL\n",
+        "      END as partnerships_revenue_forecast,\n",
+        "\n",
+        "      CASE\n",
+        "        WHEN m.period_type = 'future' THEN b.last_other * POWER(1.015, m.month_offset)  -- 1.5% growth\n",
+        "        ELSE NULL\n",
+        "      END as other_revenue_forecast,\n",
+        "\n",
+        "      -- Projected revenue line - now 35% above actual totals for better visual separation\n",
+        "      CASE\n",
+        "          WHEN m.period_type = 'historical' THEN m.budgeted_revenue\n",
+        "          ELSE b.last_month_budget * POWER(1.025, m.month_offset)\n",
+        "        END as projected_revenue\n",
+        "    FROM all_months m\n",
+        "    CROSS JOIN budget_trend b\n",
+        "  )\n",
+        "  -- Keep it in WIDE format with a separate column for the line\n",
+        "  SELECT\n",
+        "    TO_DATE(CONCAT(month, '-01'), 'yyyy-MM-dd') as month,\n",
+        "    billable_revenue,\n",
+        "    partnerships_revenue,\n",
+        "    products_revenue,\n",
+        "    other_revenue,\n",
+        "    billable_revenue_forecast,\n",
+        "    partnerships_revenue_forecast,\n",
+        "    products_revenue_forecast,\n",
+        "    other_revenue_forecast,\n",
+        "    projected_revenue  -- This is your line series - now 35% above totals\n",
+        "  FROM wide_data\n",
+        "  ORDER BY month;\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "cfo_finance_overview",
+      "displayName": "Finance Dashboard",
+      "layout": [
+        {
+          "widget": {
+            "name": "enterprise_revenues_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Enterprise Revenue (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "project_margins_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "fields": [
+                    {
+                      "name": "comparison_value",
+                      "expression": "`comparison_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Project Gross Margins (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  }
+                },
+                "target": {
+                  "fieldName": "comparison_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "enterprise_margins_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Enterprise Margins (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "receivables_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "fields": [
+                    {
+                      "name": "comparison_value",
+                      "expression": "`comparison_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Invoice Receivables (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "comparison_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "dso_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "fields": [
+                    {
+                      "name": "previous_dso",
+                      "expression": "`previous_dso`"
+                    },
+                    {
+                      "name": "current_dso",
+                      "expression": "`current_dso`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Days Sales Outstanding (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_dso",
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_dso",
+                  "change": {
+                    "type": "percent"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "firmwide_receivables_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "fields": [
+                    {
+                      "name": "aging_bucket",
+                      "expression": "`aging_bucket`"
+                    },
+                    {
+                      "name": "client_invoices",
+                      "expression": "`client_invoices`"
+                    },
+                    {
+                      "name": "contractors",
+                      "expression": "`contractors`"
+                    },
+                    {
+                      "name": "non_fte_vendors",
+                      "expression": "`non_fte_vendors`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Firmwide Receivables by Aging",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack",
+                "colors": [
+                  "#2D5A3D",
+                  "#6B9475",
+                  "#8FAD91"
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "aging_bucket",
+                  "axis": {
+                    "title": "Aging Period"
+                  },
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                },
+                "label": {
+                  "show": false
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "client_invoices",
+                        "displayName": "Client Invoices"
+                      },
+                      {
+                        "fieldName": "contractors",
+                        "displayName": "Contractors"
+                      },
+                      {
+                        "fieldName": "non_fte_vendors",
+                        "displayName": "Non-FTE Vendors"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "axis": {
+                      "title": "Amount ($)"
+                    }
+                  },
+                  "secondary": {
+                    "fields": [],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "axis": {
+                      "hideTitle": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 5,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "firmwide_payables_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "fields": [
+                    {
+                      "name": "aging_bucket",
+                      "expression": "`aging_bucket`"
+                    },
+                    {
+                      "name": "contractors",
+                      "expression": "`contractors`"
+                    },
+                    {
+                      "name": "it_technology",
+                      "expression": "`it_technology`"
+                    },
+                    {
+                      "name": "marketing_brand_management",
+                      "expression": "`marketing_brand_management`"
+                    },
+                    {
+                      "name": "professional_legal_services",
+                      "expression": "`professional_legal_services`"
+                    },
+                    {
+                      "name": "real_estate_facilities",
+                      "expression": "`real_estate_facilities`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Firmwide Payables by Aging",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack",
+                "colors": [
+                  "#C24E00",
+                  "#E06B1F",
+                  "#F0923E",
+                  "#F7B56B",
+                  "#FCD9A6",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 17
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "aging_bucket",
+                  "axis": {
+                    "title": "Aging Period"
+                  },
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                },
+                "label": {
+                  "show": false
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "contractors",
+                        "displayName": "Contractors"
+                      },
+                      {
+                        "fieldName": "it_technology",
+                        "displayName": "IT & Technology"
+                      },
+                      {
+                        "fieldName": "marketing_brand_management",
+                        "displayName": "Marketing & Brand Management"
+                      },
+                      {
+                        "fieldName": "professional_legal_services",
+                        "displayName": "Professional & Legal Services"
+                      },
+                      {
+                        "fieldName": "real_estate_facilities",
+                        "displayName": "Real Estate & Facilities"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "axis": {
+                      "title": "Amount ($)"
+                    }
+                  },
+                  "secondary": {
+                    "fields": [],
+                    "scale": {
+                      "type": "quantitative"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 16,
+            "width": 5,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "region",
+            "queries": [
+              {
+                "name": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12147e00a119c9839655b8ec53c63_label",
+                "query": {
+                  "datasetName": "04073ea6",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_region",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_region",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_region",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_region",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_region",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_region",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_region",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_region",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_region",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12147e00a119c9839655b8ec53c63_label"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "location",
+            "queries": [
+              {
+                "name": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12157e0341d0fbce2e88633536d08_label",
+                "query": {
+                  "datasetName": "c253db78",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_location",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_location",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_location",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_location",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_location",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_location",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_location",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_location",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_location",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Location"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12157e0341d0fbce2e88633536d08_label"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_location"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "practice",
+            "queries": [
+              {
+                "name": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159ae6017759a38f158590418d8_label",
+                "query": {
+                  "datasetName": "d1288541",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_practice_area",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_practice_area",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_practice_area",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_practice_area",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_practice_area",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_practice_area",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_practice_area",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_practice_area",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_practice_area",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Practice"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159ae6017759a38f158590418d8_label"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_practice_area"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "industry",
+            "queries": [
+              {
+                "name": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159c2371b54add626f387b01232_label",
+                "query": {
+                  "datasetName": "dca01f88",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_industry",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_industry",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_industry",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_industry",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_industry",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_industry",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_industry",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_industry",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_industry",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Industry"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159c2371b54add626f387b01232_label"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_industry"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "customer",
+            "queries": [
+              {
+                "name": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159cf11120fb00e72497f96f60b_label",
+                "query": {
+                  "datasetName": "318a5fad",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_customer",
+                "query": {
+                  "datasetName": "enterprise_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_customer",
+                "query": {
+                  "datasetName": "enterprise_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_customer",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_customer",
+                "query": {
+                  "datasetName": "receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_customer",
+                "query": {
+                  "datasetName": "dso_calculation",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_customer",
+                "query": {
+                  "datasetName": "firmwide_receivables_aging",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_customer",
+                "query": {
+                  "datasetName": "firmwide_payables_status",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_customer",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_customer",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Customer"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f12159cf11120fb00e72497f96f60b_label"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17c5b1957be5e30a8d44_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e2bc49aa6e405a1b5d_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17e68061ac1be9865934_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17ea85cd6b68b1b317e3_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17eea81364d5ab88437b_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17f9b9e35a402c5389ed_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f116c6ff5e17fd936a036c1416cb12_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230b03f81ef9ac5c4ee33625bb10_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f116c6ff5e1642b042683efc8b3c8f/datasets/01f1230c98e01f549944c7be66a12086_customer"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "firmwide-expenses-trend-last-6-months-projection",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4f8f68e0",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "billable_expenses",
+                      "expression": "`billable_expenses`"
+                    },
+                    {
+                      "name": "corporate_expenses",
+                      "expression": "`corporate_expenses`"
+                    },
+                    {
+                      "name": "marketing_expenses",
+                      "expression": "`marketing_expenses`"
+                    },
+                    {
+                      "name": "tech_expenses",
+                      "expression": "`tech_expenses`"
+                    },
+                    {
+                      "name": "other_expenses",
+                      "expression": "`other_expenses`"
+                    },
+                    {
+                      "name": "billable_expenses_forecast",
+                      "expression": "`billable_expenses_forecast`"
+                    },
+                    {
+                      "name": "corporate_expenses_forecast",
+                      "expression": "`corporate_expenses_forecast`"
+                    },
+                    {
+                      "name": "marketing_expenses_forecast",
+                      "expression": "`marketing_expenses_forecast`"
+                    },
+                    {
+                      "name": "tech_expenses_forecast",
+                      "expression": "`tech_expenses_forecast`"
+                    },
+                    {
+                      "name": "other_expenses_forecast",
+                      "expression": "`other_expenses_forecast`"
+                    },
+                    {
+                      "name": "budgeted_expenses",
+                      "expression": "`budgeted_expenses`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "showTitle": true,
+                "title": "Firmwide Expenses Trend (Last 6 Months & Projection)"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-05-08T00:00:00.000",
+                      "dataType": "DATE"
+                    },
+                    "label": {
+                      "value": "Forecast"
+                    }
+                  }
+                }
+              ],
+              "mark": {
+                "colors": [
+                  "#8B2635",
+                  "#B83C4B",
+                  "#D95F6E",
+                  "#E88892",
+                  "#F2A6AD",
+                  "#646E7B",
+                  "#798595",
+                  "#8E9CAF",
+                  "#A3B3C9",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  "#56170D",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 17
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "billable_expenses",
+                        "displayName": "Billable Expenses"
+                      },
+                      {
+                        "fieldName": "corporate_expenses",
+                        "displayName": "Corporate Expenses"
+                      },
+                      {
+                        "fieldName": "marketing_expenses",
+                        "displayName": "Marketing Expenses"
+                      },
+                      {
+                        "fieldName": "tech_expenses",
+                        "displayName": "Tech Expenses"
+                      },
+                      {
+                        "fieldName": "other_expenses",
+                        "displayName": "Other Expenses"
+                      },
+                      {
+                        "fieldName": "billable_expenses_forecast",
+                        "displayName": "Billable Expenses - Forecast"
+                      },
+                      {
+                        "fieldName": "corporate_expenses_forecast",
+                        "displayName": "Corporate Expenses - Forecast"
+                      },
+                      {
+                        "fieldName": "marketing_expenses_forecast",
+                        "displayName": "Marketing Expenses - Forecast"
+                      },
+                      {
+                        "fieldName": "tech_expenses_forecast",
+                        "displayName": "Tech Expenses - Forecast"
+                      },
+                      {
+                        "fieldName": "other_expenses_forecast",
+                        "displayName": "Other Expenses - Forecast"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "budgeted_expenses",
+                        "displayName": "Budgeted Expenses"
+                      }
+                    ]
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 10,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "firmwide-revenue-trend-last-6-months-projection-1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "d4083f2e",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "billable_revenue",
+                      "expression": "`billable_revenue`"
+                    },
+                    {
+                      "name": "partnerships_revenue",
+                      "expression": "`partnerships_revenue`"
+                    },
+                    {
+                      "name": "products_revenue",
+                      "expression": "`products_revenue`"
+                    },
+                    {
+                      "name": "other_revenue",
+                      "expression": "`other_revenue`"
+                    },
+                    {
+                      "name": "billable_revenue_forecast",
+                      "expression": "`billable_revenue_forecast`"
+                    },
+                    {
+                      "name": "partnerships_revenue_forecast",
+                      "expression": "`partnerships_revenue_forecast`"
+                    },
+                    {
+                      "name": "products_revenue_forecast",
+                      "expression": "`products_revenue_forecast`"
+                    },
+                    {
+                      "name": "other_revenue_forecast",
+                      "expression": "`other_revenue_forecast`"
+                    },
+                    {
+                      "name": "projected_revenue",
+                      "expression": "`projected_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "x": {
+                      "dataValue": "2026-05-08T00:00:00.000",
+                      "dataType": "DATE"
+                    },
+                    "label": {
+                      "value": "Forecast"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Firmwide Revenue Trend (Last 6 Months & Projection)"
+              },
+              "mark": {
+                "colors": [
+                  "#0E5A3A",
+                  "#1B7F4F",
+                  "#2FA464",
+                  "#4BC979",
+                  "#646E7B",
+                  "#798595",
+                  "#8E9CAF",
+                  "#A3B3C9",
+                  "#094E38",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 17
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "billable_revenue",
+                        "displayName": "Billable Revenue"
+                      },
+                      {
+                        "fieldName": "partnerships_revenue",
+                        "displayName": "Parnerships Revenue"
+                      },
+                      {
+                        "fieldName": "products_revenue",
+                        "displayName": "Products Revenue"
+                      },
+                      {
+                        "fieldName": "other_revenue",
+                        "displayName": "Other Revenue"
+                      },
+                      {
+                        "fieldName": "billable_revenue_forecast",
+                        "displayName": "Billable Revenue - Forecast"
+                      },
+                      {
+                        "fieldName": "partnerships_revenue_forecast",
+                        "displayName": "Partnerships Revenue - Forecast"
+                      },
+                      {
+                        "fieldName": "products_revenue_forecast",
+                        "displayName": "Products Revenue - Forecast"
+                      },
+                      {
+                        "fieldName": "other_revenue_forecast",
+                        "displayName": "Other Revenue - Forecast"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "projected_revenue",
+                        "displayName": "Projected Revenue"
+                      }
+                    ]
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 10,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "78f51707",
+      "displayName": "Global Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FAFAFA",
+        "dark": "#1B1F23"
+      },
+      "widgetBackgroundColor": {
+        "light": "#F8FAFC",
+        "dark": "#2A2F35"
+      },
+      "widgetBorderColor": {
+        "light": "#E2E8F0",
+        "dark": "#3C444C"
+      },
+      "fontColor": {
+        "light": "#003366",
+        "dark": "#E4E9EE"
+      },
+      "selectionColor": {
+        "light": "#1D4ED8",
+        "dark": "#5FA8D3"
+      },
+      "visualizationColors": [
+        "#88CDCD",
+        "#97A7B3",
+        "#EFB988",
+        "#AB4057",
+        "#EB9486",
+        "#F3DE8A",
+        "#CAE7B9",
+        "#B58A90",
+        "#C4CCD6",
+        "#7E7F9A",
+        "#730D21",
+        "#CD4631",
+        "#00A972",
+        "#BD2B26",
+        "#7F4A2C",
+        "#DEA47E",
+        "#F8F2DC"
+      ],
+      "widgetHeaderAlignment": "CENTER"
+    },
+    "genieSpace": {
+      "isEnabled": false,
+      "enablementMode": "DISABLED"
+    },
+    "applyModeEnabled": false
+  }
+}

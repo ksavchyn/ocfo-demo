@@ -1,0 +1,147 @@
+# SQL snippets for the Genie space.
+# Filters: WHERE-clause expressions Genie surfaces as named filters.
+# Measures: aggregate SQL expressions Genie surfaces as named measures.
+#
+# Each snippet MUST declare `tables: [fqn1, fqn2, ...]` so Genie's validator
+# can resolve column references. The first table listed is used as the
+# qualifier prefix in the SQL expression. Without `tables`, Genie rejects the
+# expression with "Table name or alias is required for column X".
+#
+# Optional `spaces: [v2_analytics, v2_management]` restricts a snippet to
+# specific Genie spaces. Absent → applies to all spaces (provided one of the
+# listed tables is in the space's table list).
+#
+# Customer portability: snippets reference only column names and schema-convention
+# enum values. The bundle's customer_mapping.py is responsible for normalizing
+# customer values to the canonical enum values listed in the Customer Mapping
+# Reference section of README.md.
+
+filters:
+  - display_name: Active Employees
+    tables: [main.cfo_proserv.silver_dim_employees]
+    sql: silver_dim_employees.employment_status = 'Active' AND (silver_dim_employees.termination_date IS NULL OR silver_dim_employees.termination_date > CURRENT_DATE())
+
+  - display_name: Active Projects
+    tables: [main.cfo_proserv.silver_dim_projects]
+    sql: silver_dim_projects.is_active = true AND silver_dim_projects.project_status = 'Active'
+
+  - display_name: Aging Receivables 60+ Days
+    tables: [main.cfo_proserv.silver_fact_accounts_receivable]
+    sql: silver_fact_accounts_receivable.days_outstanding >= 60 AND silver_fact_accounts_receivable.aging_bucket IN ('61-90 days', '90+ days')
+
+  - display_name: Approved Expenses
+    tables: [main.cfo_proserv.silver_fact_expenses]
+    sql: silver_fact_expenses.approval_status = 'Approved'
+
+  - display_name: Billable Time
+    tables: [main.cfo_proserv.silver_fact_timecards]
+    sql: silver_fact_timecards.time_type_clean = 'Billable'
+
+  - display_name: Current Fiscal Year
+    tables: [main.cfo_proserv.gold_regional_pnl, main.cfo_proserv.gold_practice_area_summary, main.cfo_proserv.gold_department_summary]
+    sql: gold_regional_pnl.fiscal_year = YEAR(CURRENT_DATE()) OR gold_regional_pnl.fiscal_period >= DATE_TRUNC('year', CURRENT_DATE())
+
+  - display_name: Current Quarter
+    tables: [main.cfo_proserv.gold_regional_pnl, main.cfo_proserv.gold_practice_area_summary, main.cfo_proserv.gold_department_summary]
+    sql: gold_regional_pnl.fiscal_period >= DATE_TRUNC('quarter', CURRENT_DATE()) AND gold_regional_pnl.fiscal_period < ADD_MONTHS(DATE_TRUNC('quarter', CURRENT_DATE()), 3)
+
+  - display_name: High Value Transactions
+    tables: [main.cfo_proserv.silver_fact_accounts_receivable, main.cfo_proserv.silver_fact_accounts_payable]
+    sql: silver_fact_accounts_receivable.amount >= 10000
+
+  - display_name: Large Projects
+    tables: [main.cfo_proserv.silver_dim_projects]
+    sql: silver_dim_projects.total_contract_value >= 500000 OR silver_dim_projects.planned_revenue >= 500000
+
+  - display_name: Overdue Accounts Payable
+    tables: [main.cfo_proserv.silver_fact_accounts_payable]
+    sql: silver_fact_accounts_payable.payment_status = 'Overdue' AND silver_fact_accounts_payable.due_date < CURRENT_DATE()
+
+  - display_name: Overdue Invoices
+    tables: [main.cfo_proserv.silver_fact_accounts_receivable]
+    sql: silver_fact_accounts_receivable.payment_status IN ('Open', 'Overdue', 'Partially Paid') AND silver_fact_accounts_receivable.due_date < CURRENT_DATE()
+
+  - display_name: Recent Expenses
+    tables: [main.cfo_proserv.silver_fact_expenses]
+    sql: silver_fact_expenses.expense_date >= DATE_SUB(CURRENT_DATE(), 30)
+
+  - display_name: Senior Level Staff
+    tables: [main.cfo_proserv.silver_dim_employees]
+    sql: silver_dim_employees.job_level IN ('Senior Partner', 'Partner', 'Associate Partner', 'Engagement Manager', 'Director')
+
+  - display_name: Strict Partners Only
+    tables: [main.cfo_proserv.silver_dim_employees]
+    sql: silver_dim_employees.job_level = 'Partner' AND silver_dim_employees.employment_status = 'Active'
+
+  - display_name: Year to Date
+    tables: [main.cfo_proserv.gold_regional_pnl, main.cfo_proserv.gold_practice_area_summary, main.cfo_proserv.gold_department_summary]
+    sql: gold_regional_pnl.fiscal_period >= DATE_TRUNC('year', CURRENT_DATE()) AND gold_regional_pnl.fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
+
+measures:
+  - display_name: AP Aging Days
+    tables: [main.cfo_proserv.silver_fact_accounts_payable]
+    sql: AVG(DATEDIFF(CURRENT_DATE(), silver_fact_accounts_payable.due_date))
+
+  - display_name: Accounts Receivable Total
+    tables: [main.cfo_proserv.silver_fact_accounts_receivable]
+    sql: SUM(silver_fact_accounts_receivable.amount)
+
+  - display_name: Active Headcount
+    tables: [main.cfo_proserv.silver_dim_employees]
+    sql: COUNT(DISTINCT silver_dim_employees.employee_id)
+
+  - display_name: Average Billing Rate
+    tables: [main.cfo_proserv.silver_fact_timecards]
+    sql: CASE WHEN SUM(silver_fact_timecards.hours_worked) > 0 THEN SUM(silver_fact_timecards.billing_amount) / SUM(silver_fact_timecards.hours_worked) ELSE 0 END
+
+  - display_name: Billable Hours
+    tables: [main.cfo_proserv.silver_fact_timecards]
+    sql: SUM(CASE WHEN silver_fact_timecards.time_type_clean = 'Billable' THEN silver_fact_timecards.hours_worked ELSE 0 END)
+
+  - display_name: Days Sales Outstanding
+    tables: [main.cfo_proserv.silver_fact_accounts_receivable]
+    sql: AVG(silver_fact_accounts_receivable.days_outstanding)
+
+  - display_name: Expense Variance Percentage
+    tables: [main.cfo_proserv.gold_department_summary, main.cfo_proserv.gold_practice_area_summary]
+    sql: CASE WHEN SUM(gold_department_summary.budgeted_expenses) > 0 THEN (SUM(gold_department_summary.accrued_expenses) - SUM(gold_department_summary.budgeted_expenses)) / SUM(gold_department_summary.budgeted_expenses) * 100 ELSE 0 END
+
+  - display_name: Gross Margin Percentage
+    tables: [main.cfo_proserv.gold_regional_pnl, main.cfo_proserv.gold_project_profitability]
+    sql: CASE WHEN SUM(gold_regional_pnl.revenue) > 0 THEN (SUM(gold_regional_pnl.revenue) - SUM(gold_regional_pnl.delivery_cost)) / SUM(gold_regional_pnl.revenue) * 100 ELSE 0 END
+
+  - display_name: Operating Margin Percentage
+    tables: [main.cfo_proserv.gold_regional_pnl]
+    sql: CASE WHEN SUM(gold_regional_pnl.total_revenue) > 0 THEN SUM(gold_regional_pnl.operating_income) / SUM(gold_regional_pnl.total_revenue) * 100 ELSE 0 END
+
+  - display_name: Pipeline Coverage Ratio
+    tables: [main.cfo_proserv.gold_enterprise_metrics]
+    sql: CASE WHEN SUM(gold_enterprise_metrics.revenue) > 0 THEN SUM(gold_enterprise_metrics.pipeline_revenue) / SUM(gold_enterprise_metrics.revenue) ELSE 0 END
+
+  - display_name: Project Budget Variance
+    tables: [main.cfo_proserv.gold_project_profitability]
+    sql: CASE WHEN SUM(gold_project_profitability.planned_revenue) > 0 THEN (SUM(gold_project_profitability.actual_revenue) - SUM(gold_project_profitability.planned_revenue)) / SUM(gold_project_profitability.planned_revenue) * 100 ELSE 0 END
+
+  - display_name: Project Margin Percentage
+    tables: [main.cfo_proserv.gold_project_profitability]
+    sql: CASE WHEN SUM(gold_project_profitability.actual_revenue) > 0 THEN SUM(gold_project_profitability.actual_margin) / SUM(gold_project_profitability.actual_revenue) * 100 ELSE 0 END
+
+  - display_name: Revenue per Partner
+    tables: [main.cfo_proserv.silver_fact_timecards, main.cfo_proserv.silver_dim_employees]
+    sql: CASE WHEN COUNT(DISTINCT CASE WHEN silver_dim_employees.job_level = 'Partner' AND silver_dim_employees.employment_status = 'Active' THEN silver_dim_employees.employee_id END) > 0 THEN SUM(silver_fact_timecards.billing_amount) / COUNT(DISTINCT CASE WHEN silver_dim_employees.job_level = 'Partner' AND silver_dim_employees.employment_status = 'Active' THEN silver_dim_employees.employee_id END) ELSE 0 END
+
+  - display_name: Total Expense Amount
+    tables: [main.cfo_proserv.gold_regional_pnl]
+    sql: SUM(gold_regional_pnl.total_expenses)
+
+  - display_name: Travel Spend
+    tables: [main.cfo_proserv.silver_fact_expenses]
+    sql: SUM(CASE WHEN silver_fact_expenses.expense_type IN ('Airfare', 'Hotel', 'Car Rental', 'Ground Transportation', 'Meals', 'Mileage', 'Parking') THEN silver_fact_expenses.amount ELSE 0 END)
+
+  - display_name: Utilization Rate
+    tables: [main.cfo_proserv.silver_fact_timecards]
+    sql: CASE WHEN SUM(silver_fact_timecards.hours_worked) > 0 THEN SUM(CASE WHEN silver_fact_timecards.time_type_clean = 'Billable' THEN silver_fact_timecards.hours_worked ELSE 0 END) / SUM(silver_fact_timecards.hours_worked) * 100 ELSE 0 END
+
+  - display_name: WIP Value Total
+    tables: [main.cfo_proserv.silver_wip_unbilled]
+    sql: SUM(CASE WHEN silver_wip_unbilled.is_wip = true THEN silver_wip_unbilled.billing_amount ELSE 0 END)

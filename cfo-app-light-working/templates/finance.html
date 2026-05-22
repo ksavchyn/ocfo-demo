@@ -1,0 +1,2837 @@
+<!-- templates/finance.html - Finance page with embedded Lakeview dashboard -->
+{% extends "base.html" %}
+
+{% block title %}Finance Dashboard - Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<!-- Modal CSS is already loaded from base.html -->
+
+<style>
+    /* Reset body and html to ensure full width */
+    body, html {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+        background: #fafafa !important;  /* Light gray to match executive page */
+    }
+
+    /* Ensure the entire page has gray background */
+    body {
+        background: #fafafa !important;
+        min-height: 100vh !important;
+    }
+
+    /* Genie Chat Button Styles - Removed (functionality moved to AI Assistant button) */
+
+    .genie-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .genie-icon::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
+        transform: rotate(45deg);
+        animation: sheen 3s infinite;
+    }
+
+    @keyframes sheen {
+        0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+        100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+    }
+
+    .genie-text {
+        color: #1f2937;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    /* Chat Box Styles */
+    .chat-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.1);
+        z-index: 1999;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .chat-overlay.active {
+        display: flex;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    .chat-container {
+        width: 700px;
+        max-width: calc(100vw - 80px);
+        max-height: calc(100vh - 80px);
+        background: #ffffff;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 122, 204, 0.2);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        transform-origin: center;
+        overflow: hidden;
+    }
+
+    @keyframes unfoldChat {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    .chat-header {
+        padding: 16px 20px;
+        background: #10b981;
+        border: 1.5px solid #10b981;
+        border-bottom: 1.5px solid #10b981;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .chat-title {
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .chat-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: #ffffff;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.3s;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .chat-close:hover {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    .chat-body {
+        padding: 20px;
+        flex-grow: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .chat-questions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .question-button {
+        background: white;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px 16px;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .question-button:hover {
+        background: #f3f4f6;
+        border-color: #10b981;
+        transform: translateX(2px);
+    }
+
+    .chat-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 700px;
+        overflow-y: auto;
+        /* Remove background to avoid double background effect */
+        background: transparent;
+        /* Keep padding for proper spacing - removed padding: 0 */
+    }
+
+    /* Custom scrollbar styling for chat messages */
+    .chat-messages::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .chat-messages::-webkit-scrollbar-track {
+        background: rgba(52, 73, 94, 0.3);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: rgba(52, 152, 219, 0.6);
+        border-radius: 4px;
+        transition: background 0.3s ease;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: rgba(52, 152, 219, 0.8);
+    }
+
+    .message {
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+
+    .message.user {
+        background: rgba(0, 122, 204, 0.1);
+        border: 1px solid rgba(0, 122, 204, 0.2);
+        margin-left: 40px;
+    }
+
+    .message.assistant {
+        background: rgba(147, 51, 234, 0.1);
+        border: 1px solid rgba(147, 51, 234, 0.3);
+        margin-right: 40px;
+    }
+
+    .chat-input-container {
+        display: none;
+        padding: 16px;
+        border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .chat-input-container.active {
+        display: flex;
+        gap: 8px;
+    }
+
+    .chat-input {
+        flex-grow: 1;
+        background: #fafafa;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        color: #1f2937;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .chat-send {
+        padding: 10px 20px;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s;
+    }
+
+    .chat-send:hover:not(:disabled) {
+        background: #059669;
+    }
+
+    .chat-send:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .thinking-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 13px;
+        padding: 8px 12px;
+        background: rgba(147, 51, 234, 0.05);
+        border-radius: 6px;
+    }
+
+    .thinking-dots {
+        display: flex;
+        gap: 4px;
+    }
+
+    .thinking-dots span {
+        width: 6px;
+        height: 6px;
+        background: rgba(147, 51, 234, 0.6);
+        border-radius: 50%;
+        animation: thinking 1.4s infinite;
+    }
+
+    .thinking-dots span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    .thinking-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    @keyframes thinking {
+        0%, 60%, 100% {
+            opacity: 0.3;
+            transform: translateY(0);
+        }
+        30% {
+            opacity: 1;
+            transform: translateY(-4px);
+        }
+    }
+
+    /* Override main content to account for sidebar */
+    .main-content {
+        padding: 0 !important;
+        margin-left: 256px !important; /* Account for sidebar width */
+        width: calc(100% - 256px) !important; /* Adjust width to account for sidebar */
+        min-height: calc(100vh - 60px);
+        position: relative;
+        overflow-y: auto;
+        background: #fafafa; /* Match executive summary page background */
+    }
+
+    /* Unified content wrapper for both dashboard and tables */
+    .finance-content-wrapper {
+        width: 100%; /* Full width like admin page */
+        max-width: 100%; /* Prevent overflow */
+        margin: 0;
+        padding: 0; /* No padding for proper dashboard alignment */
+        position: relative;
+        background: #fafafa !important; /* Ensure gray background */
+        min-height: 100vh; /* Full height to fill the page */
+    }
+
+    /* Dashboard container - auto height to prevent scrollbars */
+    .dashboard-container {
+        position: relative;
+        width: 100%;
+        height: auto; /* Auto height to fit content */
+        background: #fafafa;
+        margin: 0;
+        padding: 0;
+        overflow: visible; /* Allow content to be visible */
+    }
+
+    /* Iframe with proper scaling to show full dashboard */
+    .dashboard-container {
+        width: calc(100% - 60px); /* Slightly wider container */
+        height: 1150px; /* Further increased height to prevent any cutoff */
+        overflow: hidden; /* Hide overflow to prevent scrollbars */
+        position: relative;
+        background: #fafafa;
+        margin-bottom: 30px; /* Medium space between dashboard and tables */
+        margin-left: 40px; /* Keep left margin */
+        margin-right: 20px; /* Smaller right margin for more width */
+    }
+
+    .dashboard-iframe {
+        width: 125%; /* Slightly wider source */
+        height: 1700px; /* Further increased to ensure all content visible */
+        border: none;
+        margin: 0;
+        padding: 0;
+        background: #fafafa;
+        display: block;
+        transform: scale(0.88); /* Scale to 88% - slightly bigger */
+        transform-origin: left top; /* Scale from top-left corner */
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    /* Loading indicator */
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #fafafa;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(0, 0, 0, 0.05);
+        border-top: 4px solid #007acc;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        position: absolute;
+        margin-top: 70px;
+        color: #888;
+        font-size: 14px;
+    }
+
+    /* Admin tables section styles */
+    .admin-tables-section {
+        padding: 20px 0; /* Standard padding */
+        width: calc(100% - 60px); /* Match dashboard container width */
+        background: #fafafa;
+        box-sizing: border-box;
+        margin-left: 40px; /* Match dashboard left margin */
+        margin-right: 20px; /* Match dashboard right margin */
+        transform: scale(0.95); /* Slightly scale down tables to match dashboard visual width */
+        transform-origin: left top; /* Scale from top-left */
+    }
+
+    .workflow-section {
+        margin-bottom: var(--spacing-xxl);
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .data-table {
+        width: 100%;
+        background: #f9fafb;
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .data-table table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    /* Set consistent column widths for alignment between tables */
+    /* Top table columns */
+    #invoicesTable th:nth-child(1),
+    #invoicesTable td:nth-child(1) {
+        width: 25%;  /* Invoice Title */
+    }
+    #invoicesTable th:nth-child(2),
+    #invoicesTable td:nth-child(2) {
+        width: 20%;  /* Invoice Value */
+    }
+    #invoicesTable th:nth-child(3),
+    #invoicesTable td:nth-child(3) {
+        width: 20%;  /* Due Date */
+    }
+    #invoicesTable th:nth-child(4),
+    #invoicesTable td:nth-child(4) {
+        width: 20%;  /* Days Overdue - matches Partner below */
+    }
+    #invoicesTable th:nth-child(5),
+    #invoicesTable td:nth-child(5) {
+        width: 15%;  /* Initiate Action */
+    }
+
+    /* Bottom table columns */
+    #outliersTable th:nth-child(1),
+    #outliersTable td:nth-child(1) {
+        width: 25%;  /* Client Name */
+    }
+    #outliersTable th:nth-child(2),
+    #outliersTable td:nth-child(2) {
+        width: 20%;  /* Expense Value */
+    }
+    #outliersTable th:nth-child(3),
+    #outliersTable td:nth-child(3) {
+        width: 20%;  /* Share of Contract */
+    }
+    #outliersTable th:nth-child(4),
+    #outliersTable td:nth-child(4) {
+        width: 20%;  /* Partner - matches Days Overdue above */
+    }
+    #outliersTable th:nth-child(5),
+    #outliersTable td:nth-child(5) {
+        width: 15%;  /* Initiate Action */
+    }
+
+    .data-table th {
+        background: #f3f4f6 !important;
+        color: #111827 !important;
+        padding: 10px 12px; /* Slightly reduced padding */
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.9rem; /* Smaller font size */
+        border-bottom: 2px solid var(--db-accent-primary);
+    }
+
+    .data-table td {
+        padding: 10px 12px; /* Slightly reduced padding */
+        color: #1f2937;
+        font-size: 0.875rem; /* Smaller font size */
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .data-table td:last-child,
+    .data-table th:last-child {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .data-table tr:hover {
+        background: #f3f4f6;
+    }
+
+    .action-button {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+        box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+    }
+
+    .action-button:hover {
+        background: linear-gradient(135deg, #059669 0%, #34d399 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+    }
+
+    .send-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .send-button:hover {
+        background: linear-gradient(135deg, #059669 0%, #34d399 100%);
+        box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+        transform: translateY(-2px);
+    }
+
+    .cancel-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: var(--db-accent-gray);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .overdue-high { color: #ff3621; font-weight: 600; }
+    .overdue-medium { color: #ffab00; font-weight: 600; }
+    .overdue-low { color: #4299e0; }
+
+    .expense-high { color: #ff3621; font-weight: 600; }
+    .expense-medium { color: #ffab00; }
+
+    /* Email Modal Styles are now in modal.css - removing duplicates */
+
+    /* Button styles also in modal.css */
+        background: rgba(0, 0, 0, 0.08);
+        border-radius: 6px;
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateX(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    /* Tone selector and button styles removed - using unified styles from modal.css */
+
+    .action-buttons {
+        display: flex;
+        gap: 12px;
+    }
+
+    .ai-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        background: rgba(156, 163, 175, 0.15);
+        color: #9ca3af;
+        border: 1px solid rgba(156, 163, 175, 0.3) !important;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        margin-left: var(--spacing-sm);
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .ai-badge:hover {
+        background: rgba(156, 163, 175, 0.25);
+        border-color: rgba(156, 163, 175, 0.5) !important;
+        transform: translateY(-1px);
+    }
+
+    /* Loading state styles */
+    .email-content.loading .form-input:not(#emailBody),
+    .email-content.loading .form-textarea:not(#emailBody) {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+    }
+
+    .loading-indicator {
+        animation: pulse 2s infinite;
+    }
+
+    /* AI Assistant Modal Styles - matching cfo_landing.html */
+    .ai-assistant-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ai-assistant-modal[style*="display: flex"] {
+        display: flex !important;
+    }
+
+    .ai-modal-content {
+        width: 700px;
+        max-width: calc(100vw - 80px);
+        max-height: calc(100vh - 80px);
+        background: #fafafa;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 122, 204, 0.2);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .ai-modal-header {
+        padding: 16px 20px;
+        background: #10b981;  /* Same green as buttons */
+        border-bottom: 1.5px solid #10b981;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .ai-modal-title {
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .ai-modal-title .sparkle {
+        background: linear-gradient(135deg, #fbbf24, #facc15, #fde047);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 18px;
+        filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.5));
+    }
+
+    .ai-modal-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: #ffffff;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.3s;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .ai-modal-close:hover {
+        background: rgba(255, 255, 255, 0.4);
+    }
+
+    .ai-assistant-body {
+        padding: 24px;
+    }
+
+    .ai-assistant-intro {
+        color: #6b7280;
+        font-size: 14px;
+        margin-bottom: 20px;
+    }
+
+    .ai-questions-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .ai-question-btn {
+        background: #f0fdf4 !important;
+        border: 1.5px solid #dcfce7 !important;
+        color: #374151 !important;
+        padding: 16px 20px;
+        border-radius: 8px;
+        text-align: left;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1.5;
+        transition: all 0.2s ease;
+        font-weight: 500;
+        width: 100%;
+    }
+
+    .ai-question-btn:hover {
+        background: #22c55e !important;  /* Green hover to match exec summary */
+        border-color: #22c55e !important;
+        color: #ffffff !important;
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(34, 197, 94, 0.25);
+    }
+
+    .ai-custom-question {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: 12px;
+    }
+
+    .ai-input {
+        flex: 1;
+        padding: 12px 16px;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #374151;
+        background: #fafafa;
+        transition: all 0.2s ease;
+    }
+
+    .ai-input:focus {
+        outline: none;
+        border-color: #10b981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    }
+
+    .ai-input::placeholder {
+        color: #9ca3af;
+    }
+
+    .ai-send-btn {
+        padding: 12px 24px;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .ai-send-btn:hover {
+        background: #059669;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+    }
+
+    /* Chat view styles */
+    #chatView {
+        display: none;
+        flex-direction: column;
+        height: 500px;
+    }
+
+    .ai-chat-messages {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 300px;
+        max-height: 400px;
+    }
+
+    .ai-chat-input-container {
+        padding: 16px 20px;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        gap: 12px;
+        background: #f9fafb;
+    }
+
+    .ai-chat-input {
+        flex: 1;
+        padding: 10px 14px;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #374151;
+        background: #fafafa;
+    }
+
+    .ai-chat-input:focus {
+        outline: none;
+        border-color: #10b981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    }
+
+    /* Message bubbles */
+    .message {
+        max-width: 70%;
+        padding: 12px 16px;
+        border-radius: 12px;
+        word-wrap: break-word;
+    }
+
+    .user-message {
+        align-self: flex-end;
+        background: #10b981;
+        color: white;
+    }
+
+    .ai-message {
+        align-self: flex-start;
+        background: #f3f4f6;
+        color: #1f2937;
+    }
+
+    /* Export button styles for Finance page */
+    .export-btn {
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: #1f2937 !important;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 500;
+        display: inline-block !important;
+        margin-left: 10px;
+    }
+
+    .export-btn:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Add explicit background to content block -->
+<div style="background: #fafafa !important; min-height: 100vh;">
+    <!-- Unified wrapper for dashboard and tables -->
+    <div class="finance-content-wrapper">
+    <!-- Dashboard container -->
+    <div class="dashboard-container">
+        <!-- Loading indicator -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Finance Dashboard...</div>
+        </div>
+
+        <!-- Dashboard iframe -->
+        <iframe
+            id="dashboardIframe"
+            class="dashboard-iframe"
+            src="{{ dashboard_url }}"
+            allowfullscreen
+            frameborder="0"
+            scrolling="no"
+            onload="document.getElementById('loadingOverlay').style.display='none';">
+        </iframe>
+    </div>
+
+    <!-- Admin tables section - below dashboard -->
+    <div class="admin-tables-section">
+    <!-- Top Unpaid Invoices Section -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top Unpaid Invoices</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th>Project</th>
+                        <th>Invoice Value</th>
+                        <th>Due Date</th>
+                        <th>Days Overdue</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="invoicesTableBody">
+                    <!-- Data will be loaded dynamically from API -->
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px; color: var(--db-accent-gray);">
+                            Loading invoice data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Top T&E Outliers Section -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top T&E Outliers (>6% of Contract Value)</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Client Name</th>
+                        <th>Expense Value</th>
+                        <th>Share of Contract Value</th>
+                        <th>Partner</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="outliersTableBody">
+                    <!-- Data will be loaded dynamically from API -->
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: var(--db-accent-gray);">
+                            Loading T&E outlier data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Immediate table population script -->
+<script>
+// DEFINE GLOBAL FUNCTIONS IMMEDIATELY - Before IIFE
+console.log('=== DEFINING GLOBAL BUTTON HANDLERS ===');
+
+// Define initiateCollection globally FIRST
+window.initiateCollection = function(invoiceData) {
+    console.log('[BUTTON] initiateCollection clicked with:', invoiceData);
+
+    // Store the action data globally - using snake_case to match backend expectations
+    window.currentAction = {
+        type: 'collection',
+        client: invoiceData.client || 'Unknown Client',
+        project: invoiceData.project || 'Unknown Project',
+        invoice: invoiceData.project || 'INV-001',
+        partner: invoiceData.partner || 'Unknown Partner',
+        amount: invoiceData.amount || 0,
+        days_overdue: invoiceData.days_overdue || 0,  // Changed to snake_case for backend
+        priority: invoiceData.priority || 'normal',
+        action: invoiceData.action || 'collection'
+    };
+
+    console.log('[BUTTON] currentAction set to:', window.currentAction);
+
+    // Update modal header for Collection Nudge
+    var modalTitle = document.querySelector('#emailModal .email-title');
+    if (modalTitle) {
+        modalTitle.textContent = 'Send Collection Nudge';
+    }
+
+    // Show the email modal
+    var modal = document.getElementById('emailModal');
+    if (modal) {
+        console.log('[BUTTON] Found email modal, adding active class');
+        modal.classList.add('active');
+
+        // Try to generate email
+        if (typeof generateEmail === 'function') {
+            console.log('[BUTTON] generateEmail exists, calling it');
+            generateEmail('collection');
+        } else if (typeof window.generateEmail === 'function') {
+            console.log('[BUTTON] window.generateEmail exists, calling it');
+            window.generateEmail('collection');
+        } else {
+            console.log('[BUTTON] generateEmail not found, will populate manually');
+            // Manually populate some fields as fallback
+            var emailTo = document.getElementById('emailTo');
+            var emailSubject = document.getElementById('emailSubject');
+            var emailBody = document.getElementById('emailContent');
+
+            if (emailTo) emailTo.value = invoiceData.partner ?
+                invoiceData.partner.toLowerCase().replace(/\s+/g, '.') + '@client.com' :
+                'contact@client.com';
+            if (emailSubject) emailSubject.value = 'Re: Outstanding Invoice - ' + (invoiceData.project || 'Project');
+            if (emailBody) emailBody.value = 'Dear ' + (invoiceData.partner || 'Partner') + ',\n\n' +
+                'I wanted to follow up regarding the outstanding invoice for ' + (invoiceData.project || 'the project') + '.\n\n' +
+                'Amount due: $' + (invoiceData.amount || 0).toLocaleString() + '\n' +
+                'Days overdue: ' + (invoiceData.days_overdue || 0) + '\n\n' +
+                'Please let me know if you need any additional information.\n\n' +
+                'Best regards';
+        }
+    } else {
+        console.error('[BUTTON] Email modal not found!');
+        alert('Email modal not found. Please refresh the page and try again.');
+    }
+};
+
+// Define initiateNotification globally
+window.initiateNotification = function(outlier) {
+    console.log('[BUTTON] initiateNotification clicked with:', outlier);
+
+    // Store the action data globally - matching backend expectations for T&E notification
+    window.currentAction = {
+        type: 'notification',
+        client: outlier.client || 'Unknown Client',
+        partner: outlier.partner || 'Unknown Partner',
+        expense: outlier.expense || outlier.expense_amount || 0,  // Handle both field names
+        contract_value: outlier.contract_value || 0,
+        percentage: outlier.percentage || outlier.expense_percentage || 0,  // Handle both field names
+        project: outlier.project || 'Unknown Project',
+        // Keep these for display
+        employee: outlier.employee || 'Unknown Employee',
+        department: outlier.department || 'Unknown Department',
+        action: 'notification'
+    };
+
+    console.log('[BUTTON] currentAction set to:', window.currentAction);
+
+    // Show the email modal
+    var modal = document.getElementById('emailModal');
+    if (modal) {
+        console.log('[BUTTON] Found email modal, adding active class');
+        modal.classList.add('active');
+
+        // Try to generate email
+        if (typeof generateEmail === 'function') {
+            console.log('[BUTTON] generateEmail exists, calling it');
+            generateEmail('notification');
+        } else if (typeof window.generateEmail === 'function') {
+            console.log('[BUTTON] window.generateEmail exists, calling it');
+            window.generateEmail('notification');
+        } else {
+            console.log('[BUTTON] generateEmail not found, will populate manually');
+            // Manually populate some fields as fallback
+            var emailTo = document.getElementById('emailTo');
+            var emailSubject = document.getElementById('emailSubject');
+            var emailBody = document.getElementById('emailContent');
+
+            if (emailTo) emailTo.value = outlier.employee ?
+                outlier.employee.toLowerCase().replace(/\s+/g, '.') + '@company.com' :
+                'employee@company.com';
+            if (emailSubject) emailSubject.value = 'T&E Expense Review Required';
+            if (emailBody) emailBody.value = 'Dear ' + (outlier.employee || 'Employee') + ',\n\n' +
+                'Your recent T&E expenses require review.\n\n' +
+                'Department: ' + (outlier.department || 'N/A') + '\n' +
+                'Expense amount: $' + (outlier.expense_amount || 0).toLocaleString() + '\n' +
+                'Percentage of revenue: ' + (outlier.expense_percentage || 0) + '%\n\n' +
+                'Please provide additional documentation for these expenses.\n\n' +
+                'Thank you';
+        }
+    } else {
+        console.error('[BUTTON] Email modal not found!');
+        alert('Email modal not found. Please refresh the page and try again.');
+    }
+};
+
+console.log('[VERIFY] window.initiateCollection =', typeof window.initiateCollection);
+console.log('[VERIFY] window.initiateNotification =', typeof window.initiateNotification);
+
+// Now run the IIFE for loading tables
+(function() {
+    console.log('Immediate script executing for tables');
+
+    // Function to load unpaid invoices
+    function loadInvoicesNow() {
+        console.log('Loading invoices immediately...');
+        fetch('/api/unpaid-invoices')
+            .then(response => response.json())
+            .then(result => {
+                console.log('Invoice data received:', result);
+                const tbody = document.getElementById('invoicesTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    if (result.data && result.data.length > 0) {
+                        result.data.forEach(invoice => {
+                            const row = document.createElement('tr');
+                            const overdueSeverity = invoice.days_overdue > 90 ? 'overdue-high' :
+                                                   invoice.days_overdue > 60 ? 'overdue-medium' : 'overdue-low';
+                            row.innerHTML = `
+                                <td>${invoice.client}</td>
+                                <td>${invoice.project}</td>
+                                <td>$${invoice.amount.toLocaleString()}</td>
+                                <td>${new Date(Date.now() - invoice.days_overdue * 86400000).toISOString().split('T')[0]}</td>
+                                <td class="${overdueSeverity}">${invoice.days_overdue} days</td>
+                                <td><button class="action-button" onclick='initiateCollection(${JSON.stringify(invoice).replace(/'/g, "&#39;")})'>Collection Nudge</button></td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No invoices found</td></tr>';
+                    }
+                } else {
+                    console.error('invoicesTableBody not found');
+                }
+            })
+            .catch(err => {
+                console.error('Error loading invoices:', err);
+                const tbody = document.getElementById('invoicesTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="color: red;">Error loading data</td></tr>';
+                }
+            });
+    }
+
+    // Function to load T&E outliers
+    function loadOutliersNow() {
+        console.log('Loading T&E outliers immediately...');
+        fetch('/api/te-outliers')
+            .then(response => response.json())
+            .then(result => {
+                console.log('T&E data received:', result);
+                const tbody = document.getElementById('outliersTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    if (result.data && result.data.length > 0) {
+                        result.data.forEach(outlier => {
+                            const row = document.createElement('tr');
+                            const expenseSeverity = outlier.percentage > 8 ? 'expense-high' :
+                                                   outlier.percentage > 7 ? 'expense-medium' : '';
+                            row.innerHTML = `
+                                <td>${outlier.client}</td>
+                                <td>$${outlier.expense.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td class="${expenseSeverity}">${outlier.percentage}%</td>
+                                <td>${outlier.partner}</td>
+                                <td><button class="action-button" onclick='initiateNotification(${JSON.stringify(outlier).replace(/'/g, "&#39;")})'>Send Notification</button></td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No outliers found</td></tr>';
+                    }
+                } else {
+                    console.error('outliersTableBody not found');
+                }
+            })
+            .catch(err => {
+                console.error('Error loading outliers:', err);
+                const tbody = document.getElementById('outliersTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color: red;">Error loading data</td></tr>';
+                }
+            });
+    }
+
+    // Load immediately
+    loadInvoicesNow();
+    loadOutliersNow();
+
+    // Also load after a delay to be safe
+    setTimeout(function() {
+        console.log('Delayed load attempt...');
+        loadInvoicesNow();
+        loadOutliersNow();
+    }, 1000);
+})();
+</script>
+
+<!-- Ask Genie button removed - functionality moved to AI Assistant button in header -->
+
+<!-- Unified AI Assistant Modal -->
+<div id="chatModal" class="chat-modal">
+    <div class="chat-modal-content">
+        <div class="chat-modal-header">
+            <div class="chat-title">
+                <span class="genie-sparkle">✨</span>
+                <span>AI Assistant</span>
+            </div>
+            <button class="chat-close" onclick="closeChatModal()">✕</button>
+        </div>
+
+        <!-- Question Selector View (shown initially when opened from AI Assistant) -->
+        <div id="questionSelectorView" style="display: none;">
+            <p class="ai-assistant-intro">Select a question or type your own:</p>
+            <div class="ai-questions-grid" id="modalQuestionsGrid">
+                <!-- Questions will be populated dynamically -->
+            </div>
+            <div class="ai-custom-question">
+                <input type="text" class="ai-input" id="modalCustomInput" placeholder="Type your question here..." onkeypress="handleModalInputKeyPress(event)">
+                <button class="ai-send-btn" onclick="sendModalCustomQuestion()">Ask</button>
+            </div>
+        </div>
+
+        <!-- Chat View (shown when asking questions normally or after selecting from AI Assistant) -->
+        <div id="chatView">
+            <div class="chat-messages" id="chatMessages">
+                <!-- Chat messages will be inserted here -->
+            </div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask follow-up questions...">
+                <button class="send-btn" onclick="sendChatMessage()">Send</button>
+                <button id="exportDataBtn" class="export-btn" onclick="window.exportData()" style="display: none;">
+                    📥 Export CSV
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Email Modal (matching admin style with proper colors) -->
+<div class="email-modal" id="emailModal">
+    <div class="email-content">
+        <div class="email-header">
+            <div>
+                <h3 class="email-title">Send Automated Nudge</h3>
+                <p style="color: white; font-size: 0.875rem; margin: 4px 0 0 0;">Review and customize the AI-generated email before sending</p>
+            </div>
+            <span class="ai-badge"><i class="fas fa-magic"></i> AI Generated</span>
+        </div>
+        <div class="email-body">
+            <div class="email-form-group">
+                <label>To:</label>
+                <input type="text" id="emailTo" readonly>
+            </div>
+            <div class="email-form-group">
+                <label>CC:</label>
+                <input type="text" id="emailCc" placeholder="Add recipients...">
+            </div>
+            <div class="email-form-group">
+                <label>Subject:</label>
+                <input type="text" id="emailSubject">
+            </div>
+            <div class="email-form-group" style="flex: 1; display: flex; flex-direction: column;">
+                <label>Email Body:</label>
+                <textarea id="emailContent" style="flex: 1; min-height: 300px;"></textarea>
+            </div>
+        </div>
+        <div class="email-footer">
+            <div class="rewrite-section">
+                <button type="button" class="ai-rewrite-button" id="aiRewriteBtn" onclick="window.showToneSelector()">
+                    <i class="fas fa-sync-alt"></i> AI Rewrite
+                </button>
+                <div class="tone-selector" id="toneSelector">
+                    <span class="tone-label">Select tone:</span>
+                    <button class="tone-btn" onclick="window.regenerateEmailWithTone('professional')">Professional</button>
+                    <button class="tone-btn" onclick="window.regenerateEmailWithTone('friendly')">Friendly</button>
+                    <button class="tone-btn" onclick="window.regenerateEmailWithTone('urgent')">Urgent</button>
+                    <button class="tone-btn" onclick="window.regenerateEmailWithTone('casual')">Casual</button>
+                </div>
+            </div>
+            <div class="action-buttons">
+                <button type="button" class="cancel-button" onclick="window.closeModal()">Cancel</button>
+                <button type="button" class="send-button" onclick="window.sendEmail()">
+                    <i class="fas fa-paper-plane"></i> Send Email
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+</style>
+
+
+<!-- JAVASCRIPT -->
+<!-- Shared Modal JavaScript -->
+<script src="{{ url_for('static', filename='modal.js') }}?v={{ range(1000, 9999) | random }}"></script>
+<!-- Filter JavaScript -->
+<script src="{{ url_for('static', filename='cascading_filters.js') }}"></script>
+<script src="{{ url_for('static', filename='custom_dropdowns.js') }}"></script>
+
+<script>
+// Duplicate openAIAssistant function removed - using shared modal.js version
+/* window.openAIAssistant = function() {
+    // Get current persona
+    const currentUserId = sessionStorage.getItem('selectedPersona') || 'priya';
+
+    // Get the questions based on persona
+    let questions = [];
+    if (currentUserId === 'priya') {
+        questions = [
+            'Why did revenue per partner go down in 2026?',
+            'Why did the Technology practice billable revenues underperform targets?',
+            'Why did expenses for the Chicago office increase in 2025?'
+        ];
+    } else if (currentUserId === 'sarah') {
+        questions = [
+            'Why did accrued billable revenues underperform targets for the New York office?',
+            'Why did AB InBev\'s outstanding balance grow 40% this quarter?',
+            'Why did the DSO increase for the US region in February?'
+        ];
+    } else if (currentUserId === 'michael') {
+        questions = [
+            'Why did the utilization for YTD 2026 reduce?',
+            'What are total compensation costs vs. budget? (Including benefits, bonuses, and outsourcing)',
+            'Which critical projects are understaffed? (Project name, client, required FTEs, and start date)'
+        ];
+    }
+
+    // Populate questions in the modal
+    populateModalQuestions(questions);
+
+    // Show question selector view
+    document.getElementById('questionSelectorView').style.display = 'block';
+    document.getElementById('chatView').style.display = 'none';
+
+    // Open the modal
+    openChatModal();
+} */
+
+</script>
+
+<script>
+// Removed broken orphaned code that was preventing modal from working
+// The openAIAssistant function above already properly reuses the existing Genie window
+</script>
+
+<script>
+// ENSURE MODAL BUTTON FUNCTIONS ARE GLOBALLY AVAILABLE
+// This needs to be at the very end to make sure functions work
+(function() {
+    console.log('Setting up modal button handlers...');
+
+    // Make sure these functions are available globally for onclick handlers
+    if (typeof window.closeModal !== 'function') {
+        window.closeModal = function() {
+            console.log('closeModal called from fallback');
+            var modal = document.getElementById('emailModal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+            window.currentAction = null;
+            if (typeof window.rewriteCount !== 'undefined') {
+                window.rewriteCount = 0;
+            }
+        };
+    }
+
+    if (typeof window.sendEmail !== 'function') {
+        window.sendEmail = async function() {
+            console.log('sendEmail called from fallback');
+            const subject = document.getElementById('emailSubject').value;
+            const content = document.getElementById('emailContent').value;
+            const to = document.getElementById('emailTo').value;
+
+            if (!to || !subject || !content) {
+                alert('Please fill in all email fields');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/send-workflow-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to: to,
+                        subject: subject,
+                        content: content,
+                        type: window.currentAction ? window.currentAction.type : 'collection',
+                        metadata: window.currentAction
+                    })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    alert('Email sent successfully!');
+                    window.closeModal();
+                } else {
+                    alert('Failed to send email: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error sending email:', error);
+                alert('Email would be sent to: ' + to);
+                window.closeModal();
+            }
+        };
+    }
+
+    // Rewrite count tracker for variation
+    let rewriteCount = 0;
+
+    // Generate email using LLM (exact same as admin)
+    window.generateEmail = async function(type, isRewrite = false, tone = null) {
+        const modal = document.getElementById('emailModal');
+        const emailTo = document.getElementById('emailTo');
+        const emailSubject = document.getElementById('emailSubject');
+        const emailContent = document.getElementById('emailContent');
+
+        if (!isRewrite) {
+            modal.classList.add('active');
+            rewriteCount = 0;  // Reset count for new emails
+        }
+
+        // Set recipient based on type - create realistic email addresses
+        if (type === 'collection' || type === 'nudge') {
+            // For collection/invoice emails - extract company name from client
+            const clientCompany = window.currentAction.client || 'Company';
+            const companyDomain = clientCompany.toLowerCase()
+                .replace(/\s*(corp|inc|llc|ltd|company|co\.?|group|holdings|international|global)\.?\s*/gi, '')
+                .replace(/[^a-z0-9]/g, '')
+                .substring(0, 20);  // Limit domain length
+
+            const clientEmail = `accounts.receivable@${companyDomain || 'client'}.com`;
+            const partnerEmail = window.currentAction.partner ?
+                window.currentAction.partner.toLowerCase().replace(/\s+/g, '.') + '@databricks.com' :
+                'partner@databricks.com';
+            emailTo.value = `${clientEmail}, ${partnerEmail}`;
+        } else if (type === 'notification') {
+            // For T&E notification emails - send to partner only
+            const partnerEmail = window.currentAction.partner ?
+                window.currentAction.partner.toLowerCase().replace(/\s+/g, '.') + '@databricks.com' :
+                'partner@databricks.com';
+            emailTo.value = partnerEmail;
+        }
+
+        // Show loading state
+        emailSubject.value = 'AI is crafting your subject line...';
+        emailContent.value = 'AI is composing your email...\n\n⏳ This typically takes 5-10 seconds with optimized prompts.\n\n💡 Tip: The AI is analyzing the data and creating a professional email tailored to your specific situation.';
+
+        // Add animated loading indicator
+        startLoadingAnimation();
+
+        console.log(`Calling /api/generate-email - Type: ${type}, Rewrite count: ${rewriteCount}, Tone: ${tone}`);
+
+        try {
+            const requestBody = {
+                type: type,
+                context: window.currentAction,
+                rewrite_count: rewriteCount
+            };
+
+            // Add tone to request if provided
+            if (tone) {
+                requestBody.tone = tone;
+            }
+
+            const response = await fetch('/api/generate-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            const data = await response.json();
+            console.log('Email API Response:', data);
+
+            // Stop loading animation
+            stopLoadingAnimation();
+
+            // Populate email fields
+            emailSubject.value = data.subject || 'Action Required';
+            emailContent.value = data.body || 'Email content generated';
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            stopLoadingAnimation();
+
+            // Fallback templates if API fails
+            if (type === 'collection') {
+                emailSubject.value = `Payment Reminder: Invoice ${window.currentAction.project || 'Project'} - ${window.currentAction.days_overdue || '30'} Days Overdue`;
+                emailContent.value = `Dear ${window.currentAction.client || 'Client'},
+
+I hope this email finds you well. I'm reaching out regarding an outstanding invoice that requires your attention.
+
+Invoice Details:
+• Project: ${window.currentAction.project || 'Project'}
+• Amount: $${(window.currentAction.amount || 0).toLocaleString()}
+• Days Overdue: ${window.currentAction.days_overdue || '30'} days
+
+We value our partnership and would appreciate your prompt attention to this matter. If there are any issues or concerns with this invoice, please let me know so we can resolve them quickly.
+
+Could you please provide an update on the payment status at your earliest convenience?
+
+Best regards,
+Finance Team`;
+            } else if (type === 'notification') {
+                emailSubject.value = `T&E Alert: ${window.currentAction.client || 'Client'} - Expense Ratio Above Threshold`;
+                emailContent.value = `Dear ${window.currentAction.partner || 'Partner'},
+
+This is an automated notification regarding T&E expenses that require your review.
+
+Details:
+• Client: ${window.currentAction.client || 'Client'}
+• Expense Category: ${window.currentAction.expense || 'Expense'}
+• Current Percentage: ${window.currentAction.percentage || '10'}%
+• Expected Range: 6-10%
+
+The expense ratio is above the expected threshold. Please review and take appropriate action.
+
+Best regards,
+Finance Team`;
+            }
+        }
+    };
+
+    // Loading animation for email generation (exact same as admin)
+    let loadingInterval;
+    let dotCount = 0;
+
+    function startLoadingAnimation() {
+        dotCount = 0;
+        const messages = [
+            '🔍 Analyzing department data',
+            '📊 Reviewing financial details',
+            '✍️ Crafting personalized content',
+            '⚡ Optimizing for clarity',
+            '📝 Finalizing email draft'
+        ];
+        let messageIndex = 0;
+
+        loadingInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            const dots = '.'.repeat(dotCount);
+            const spaces = '\u00A0'.repeat(3 - dotCount);
+
+            if (dotCount === 0) {
+                messageIndex = (messageIndex + 1) % messages.length;
+            }
+
+            const bodyText = `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}\n\n💡 Generating with optimized prompts (5-10 seconds).`;
+            document.getElementById('emailContent').value = bodyText;
+        }, 500);
+    }
+
+    function stopLoadingAnimation() {
+        if (loadingInterval) {
+            clearInterval(loadingInterval);
+            loadingInterval = null;
+        }
+    }
+
+    // Show/hide tone selector (exact same as admin)
+    window.showToneSelector = function() {
+        const toneSelector = document.getElementById('toneSelector');
+        if (toneSelector) {
+            toneSelector.classList.toggle('show');
+        }
+    };
+
+    // Regenerate email with specific tone (exact same as admin)
+    window.regenerateEmailWithTone = async function(tone) {
+        const btn = document.getElementById('aiRewriteBtn');
+        const originalHTML = btn.innerHTML;
+        const toneSelector = document.getElementById('toneSelector');
+
+        // Hide tone selector
+        if (toneSelector) toneSelector.classList.remove('show');
+
+        // Increment rewrite count for variation
+        rewriteCount++;
+        console.log(`Regenerating email with tone: ${tone} - Rewrite count: ${rewriteCount}`);
+
+        // Update button to show it's working
+        btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Regenerating...';
+        btn.disabled = true;
+
+        // Show loading state for both subject and content
+        document.getElementById('emailSubject').value = `Regenerating with ${tone} tone...`;
+        document.getElementById('emailContent').value = `AI is regenerating your email with a ${tone} tone...`;
+
+        // Add a small delay to show the loading state
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            // Call the generate email function with isRewrite=true and tone
+            await window.generateEmail(window.currentAction.type || 'collection', true, tone);
+        } finally {
+            // Restore button state
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    };
+
+    // Legacy aiRewrite function - just calls showToneSelector
+    if (typeof window.aiRewrite !== 'function') {
+        window.aiRewrite = function() {
+            window.showToneSelector();
+        };
+    }
+
+    console.log('Modal button handlers ready:');
+    console.log('- window.closeModal:', typeof window.closeModal);
+    console.log('- window.sendEmail:', typeof window.sendEmail);
+    console.log('- window.aiRewrite:', typeof window.aiRewrite);
+})();
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    console.log('Finance page script starting...');
+
+    // Store current action context globally
+    var currentAction = null;
+    var rewriteCount = 0;
+
+    // Button handlers are already defined globally in the immediate script above
+    // window.initiateCollection is defined at line 1080
+    // window.initiateNotification is defined at line 1136
+    console.log('Verifying button handlers exist:');
+    console.log('  - window.initiateCollection:', typeof window.initiateCollection);
+    console.log('  - window.initiateNotification:', typeof window.initiateNotification);
+
+    /* COMMENTED OUT - Already defined globally
+    window.initiateNotification = function(outlierData) {
+        console.log('initiateNotification called with:', outlierData);
+
+        // Set current action data
+        if (typeof outlierData === 'object') {
+            currentAction = {
+                type: 'notification',
+                client: outlierData.client,
+                partner: outlierData.partner,
+                expense: outlierData.expense,
+                percentage: outlierData.percentage,
+                project: outlierData.project,
+                contract_value: outlierData.contract_value,
+                action: outlierData.action
+            };
+        } else {
+            currentAction = {
+                type: 'notification',
+                client: outlierData,
+                partner: arguments[1],
+                expense: arguments[2],
+                percentage: arguments[3]
+            };
+        }
+
+        console.log('currentAction set to:', currentAction);
+
+        // Show modal immediately
+        var modal = document.getElementById('emailModal');
+        if (modal) {
+            // Update modal header for Send Notification
+            var modalTitle = document.querySelector('#emailModal .email-title');
+            if (modalTitle) {
+                modalTitle.textContent = 'Send Notification';
+            }
+
+            modal.classList.add('active');
+            console.log('Modal shown');
+
+            // Try to generate email after modal is shown
+            if (window.generateEmail) {
+                generateEmail('notification');
+            } else {
+                console.log('generateEmail not yet available, will try later');
+                setTimeout(function() {
+                    if (window.generateEmail) {
+                        window.generateEmail('notification');
+                    }
+                }, 500);
+            }
+        } else {
+            console.error('Email modal not found');
+            alert('Email modal not found. Please refresh the page.');
+        }
+    };
+
+    // Helper functions
+    window.showEmailModal = function() {
+        var modal = document.getElementById('emailModal');
+        if (modal) {
+            modal.classList.add('active');
+        } else {
+            console.error('Email modal not found');
+        }
+    };
+
+    // Create closeModal function to match admin page
+    window.closeModal = function() {
+        console.log('closeModal called');
+        var modal = document.getElementById('emailModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+        // Clear current action data like admin page does
+        window.currentAction = null;
+        rewriteCount = 0;
+    };
+
+    // Also keep closeEmailModal for backward compatibility
+    window.closeEmailModal = window.closeModal;
+
+    console.log('Button handlers registered:');
+    console.log('- window.initiateCollection:', typeof window.initiateCollection);
+    console.log('- window.initiateNotification:', typeof window.initiateNotification);
+
+    // Hide loading after timeout as fallback
+    setTimeout(function() {
+        var loader = document.getElementById('loadingOverlay');
+        if (loader) loader.style.display = 'none';
+    }, 5000);
+
+    // Test API endpoint function
+    window.testAPIEndpoint = async function(endpoint) {
+        console.log('Testing API endpoint:', endpoint);
+        try {
+            const response = await fetch(endpoint);
+            console.log('Response status:', response.status);
+            const data = await response.json();
+            console.log('Response data:', data);
+            alert('API Test Success! Check console for details. Status: ' + data.status);
+        } catch (error) {
+            console.error('API Test Failed:', error);
+            alert('API Test Failed: ' + error.message);
+        }
+    }
+
+    // Test email modal function
+    window.testEmailModal = function() {
+        console.log('Testing email modal...');
+        const modal = document.getElementById('emailModal');
+        if (modal) {
+            console.log('Modal found, showing it...');
+            modal.classList.add('active');
+            setTimeout(() => {
+                console.log('Hiding modal after 2 seconds...');
+                modal.classList.remove('active');
+            }, 2000);
+        } else {
+            console.error('Modal not found!');
+            alert('Email modal not found in DOM!');
+        }
+    }
+
+    // Load real data when page loads - using multiple approaches to ensure it runs
+    console.log('Script executing - setting up table loaders...');
+
+    // Approach 1: DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded - Loading tables...');
+
+        // Test if elements exist
+        const invoicesTable = document.getElementById('invoicesTableBody');
+        const outliersTable = document.getElementById('outliersTableBody');
+
+        console.log('invoicesTableBody found:', !!invoicesTable);
+        console.log('outliersTableBody found:', !!outliersTable);
+
+        // Try loading immediately
+        if (invoicesTable) {
+            invoicesTable.innerHTML = '<tr><td colspan="6">Starting to load data...</td></tr>';
+        }
+
+        // Small delay to ensure DOM is fully ready
+        setTimeout(function() {
+            console.log('Calling load functions from DOMContentLoaded...');
+            loadUnpaidInvoices();
+            loadTEOutliers();
+        }, 500);
+    });
+
+    // Approach 2: window.onload as backup
+    window.addEventListener('load', function() {
+        console.log('Window.onload - checking if tables were loaded...');
+        const invoicesTable = document.getElementById('invoicesTableBody');
+        if (invoicesTable && invoicesTable.innerHTML.includes('Loading invoice data')) {
+            console.log('Tables not loaded yet, trying from window.onload...');
+            loadUnpaidInvoices();
+            loadTEOutliers();
+        }
+    });
+
+    // Approach 3: Direct immediate check
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('ReadyState was loading, now ready');
+            setTimeout(function() {
+                loadUnpaidInvoices();
+                loadTEOutliers();
+            }, 100);
+        });
+    } else {
+        // DOM is already ready, call directly
+        console.log('DOM already ready, loading immediately');
+        setTimeout(function() {
+            loadUnpaidInvoices();
+            loadTEOutliers();
+        }, 100);
+    }
+
+    // Load unpaid invoices from database
+    window.loadUnpaidInvoices = async function() {
+        console.log('loadUnpaidInvoices function called!');
+        try {
+            const tbody = document.getElementById('invoicesTableBody');
+            if (!tbody) {
+                console.error('Cannot find invoicesTableBody!');
+                return;
+            }
+
+            console.log('Fetching from /api/unpaid-invoices...');
+            const response = await fetch('/api/unpaid-invoices');
+            console.log('Response received:', response.status);
+            const result = await response.json();
+            console.log('Data received:', result);
+
+            tbody.innerHTML = '';
+
+            if (result.data && result.data.length > 0) {
+                console.log('Displaying', result.data.length, 'invoices');
+                result.data.forEach(invoice => {
+                    const row = document.createElement('tr');
+                    const overdueSeverity = invoice.days_overdue > 90 ? 'overdue-high' :
+                                           invoice.days_overdue > 60 ? 'overdue-medium' : 'overdue-low';
+
+                    row.innerHTML = `
+                        <td>${invoice.client}</td>
+                        <td>${invoice.project}</td>
+                        <td>$${invoice.amount.toLocaleString()}</td>
+                        <td>${new Date(Date.now() - invoice.days_overdue * 86400000).toISOString().split('T')[0]}</td>
+                        <td class="${overdueSeverity}">${invoice.days_overdue} days</td>
+                        <td>
+                            <button class="action-button"
+                                    onclick='initiateCollection(${JSON.stringify(invoice).replace(/'/g, "&#39;")})'>Collection Nudge</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #9ca3af;">No unpaid invoices found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading unpaid invoices:', error);
+            const tbody = document.getElementById('invoicesTableBody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #ef4444;">Error loading invoice data</td></tr>';
+        }
+    }  // End of loadUnpaidInvoices
+
+    // Load T&E outliers from database
+    window.loadTEOutliers = async function() {
+        console.log('loadTEOutliers function called!');
+        try {
+            const tbody = document.getElementById('outliersTableBody');
+            if (!tbody) {
+                console.error('Cannot find outliersTableBody!');
+                return;
+            }
+
+            console.log('Fetching from /api/te-outliers...');
+            const response = await fetch('/api/te-outliers');
+            console.log('T&E Response received:', response.status);
+            const result = await response.json();
+            console.log('T&E Data received:', result);
+
+            tbody.innerHTML = '';
+
+            if (result.data && result.data.length > 0) {
+                console.log('Displaying', result.data.length, 'outliers');
+                result.data.forEach(outlier => {
+                    const row = document.createElement('tr');
+                    const expenseSeverity = outlier.percentage > 8 ? 'expense-high' :
+                                           outlier.percentage > 7 ? 'expense-medium' : '';
+
+                    row.innerHTML = `
+                        <td>${outlier.client}</td>
+                        <td>$${outlier.expense.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td class="${expenseSeverity}">${outlier.percentage}%</td>
+                        <td>${outlier.partner}</td>
+                        <td>
+                            <button class="action-button"
+                                    onclick='initiateNotification(${JSON.stringify(outlier).replace(/'/g, "&#39;")})'>Send Notification</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #9ca3af;">No T&E outliers found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading T&E outliers:', error);
+            const tbody = document.getElementById('outliersTableBody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ef4444;">Error loading T&E data</td></tr>';
+        }
+    }
+
+    // Collection Nudge Handler - REMOVED (defined at top of script)
+    // window.initiateCollection is already defined above
+
+    // T&E Notification Handler
+    // Review Expenses Handler (for T&E outliers)
+    window.reviewExpenses = function(outlierData) {
+        currentAction = {
+            type: 'expense_review',
+            outlier: outlierData
+        };
+        showEmailModal();
+    }
+
+    // T&E Notification Handler - REMOVED (defined at top of script)
+    // window.initiateNotification is already defined above
+
+    // Generate AI Email - Make globally accessible
+    window.generateEmail = async function(type, isRewrite = false, tone = null) {
+        console.log('generateEmail called with type:', type, 'isRewrite:', isRewrite, 'tone:', tone);
+        const modal = document.getElementById('emailModal');
+        const emailTo = document.getElementById('emailTo');
+        const emailSubject = document.getElementById('emailSubject');
+        const emailBody = document.getElementById('emailContent');
+
+        if (!isRewrite) {
+            modal.classList.add('active');
+            rewriteCount = 0;  // Reset count for new emails
+        }
+
+        // Set recipient based on type - matching admin page logic
+        if (type === 'collection') {
+            // For invoice collection - email to partner at client company
+            const partnerEmail = currentAction.partner ?
+                currentAction.partner.toLowerCase().replace(/\s+/g, '.') + '@' +
+                (currentAction.client ? currentAction.client.toLowerCase().replace(/[^a-z0-9]/g, '') : 'client') + '.com' :
+                'contact@client.com';
+            emailTo.value = partnerEmail;
+        } else if (type === 'notification') {
+            // For T&E notification - email to employee
+            const employeeEmail = currentAction.employee ?
+                currentAction.employee.toLowerCase().replace(/\s+/g, '.') + '@databricks.com' :
+                'employee@databricks.com';
+            emailTo.value = employeeEmail;
+        }
+
+        // Show loading state with animated dots
+        const loadingPrefix = tone ? `AI is crafting your ${tone} ` : 'AI is crafting your ';
+        document.getElementById('emailSubject').value = loadingPrefix + 'subject line...';
+        document.getElementById('emailContent').value = loadingPrefix + 'email...\n\n💡 Tip: The AI is analyzing the client data and creating a professional email tailored to your specific situation.';
+
+        // Add animated loading indicator
+        startLoadingAnimation();
+
+        console.log(`Calling /api/generate-email - Type: ${type}, Rewrite count: ${rewriteCount}, Tone: ${tone}`);
+
+        try {
+            const response = await fetch('/api/generate-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: type,
+                    context: currentAction,
+                    rewrite_count: rewriteCount,
+                    tone: tone
+                })
+            });
+
+            const data = await response.json();
+            console.log('Email API Response:', data);
+
+            // Stop loading animation
+            stopLoadingAnimation();
+
+            // Populate email fields
+            document.getElementById('emailSubject').value = data.subject || 'Action Required';
+
+            // Process markdown-style formatting in the body
+            let processedBody = (data.body || 'Email content generated');
+            // Convert **text** to bold HTML for display
+            processedBody = processedBody.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+            // For now, still use textarea but without the HTML tags showing
+            // Remove HTML tags for textarea display but keep the emphasis
+            let textareaBody = processedBody.replace(/<b>/g, '').replace(/<\/b>/g, '');
+            document.getElementById('emailContent').value = textareaBody;
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            stopLoadingAnimation();
+
+            // Fallback templates matching the context properly
+            if (type === 'collection') {
+                emailSubject.value = `Outstanding Invoice - ${currentAction.project || currentAction.invoice}`;
+                emailBody.value = `Dear ${currentAction.partner || 'Partner'},
+
+I hope this message finds you well. I'm following up regarding the outstanding invoice for ${currentAction.project || 'your project'}.
+
+Invoice Details:
+• Client: ${currentAction.client || 'N/A'}
+• Project: ${currentAction.project || 'N/A'}
+• Amount Due: $${(currentAction.amount || 0).toLocaleString()}
+• Days Overdue: ${currentAction.daysOverdue || 0}
+
+This invoice is now ${currentAction.daysOverdue || 0} days past due. We would appreciate prompt payment to maintain our ongoing partnership.
+
+Please let me know if you need any additional documentation or if there are any issues preventing payment that we should discuss.
+
+Thank you for your immediate attention to this matter.
+
+Best regards,
+Finance Team`;
+            } else if (type === 'notification') {
+                emailSubject.value = `T&E Expense Review Required - ${currentAction.department || 'Your Department'}`;
+                emailBody.value = `Dear ${currentAction.employee || 'Team Member'},
+
+I'm writing to bring to your attention that your recent travel and entertainment expenses require review.
+
+Expense Details:
+• Department: ${currentAction.department || 'N/A'}
+• Total T&E Amount: $${(currentAction.amount || 0).toLocaleString()}
+• Percentage of Revenue: ${currentAction.percentage || 0}%
+• Standard Threshold: 6%
+
+Your T&E expenses currently represent ${currentAction.percentage || 0}% of revenue, which exceeds our standard threshold.
+
+Please provide:
+1. Detailed receipts for all expenses
+2. Business justification for expenses exceeding normal limits
+3. Client/project allocation for each expense
+
+Please submit this documentation within 3 business days for review.
+
+Thank you for your cooperation.
+
+Best regards,
+Finance Team`;
+            }
+        }
+    }
+
+    // Show tone selector - Make it global
+    window.showToneSelector = function() {
+        const toneSelector = document.getElementById('toneSelector');
+        toneSelector.style.display = toneSelector.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    // Regenerate email with specific tone - Make it global
+    window.regenerateEmailWithTone = async function(tone) {
+        const btn = document.getElementById('regenerateBtn');
+        const originalHTML = btn.innerHTML;
+        const toneSelector = document.getElementById('toneSelector');
+
+        // Hide tone selector
+        toneSelector.style.display = 'none';
+
+        // Increment rewrite count for variation
+        rewriteCount++;
+        console.log(`Regenerating email with tone: ${tone} - Rewrite count: ${rewriteCount}`);
+
+        // Update button to show it's working
+        btn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Regenerating...';
+        btn.disabled = true;
+
+        // Show loading state for both subject and body
+        document.getElementById('emailSubject').value = `Regenerating with ${tone} tone...`;
+        document.getElementById('emailContent').value = `AI is regenerating your email with a ${tone} tone...`;
+
+        // Add a small delay to show the loading state
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            // Call the generate email function with isRewrite=true and tone
+            await window.generateEmail(window.currentAction.type || 'collection', true, tone);
+        } finally {
+            // Restore button state
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    // Legacy regenerate function for backward compatibility - Make it global
+    window.regenerateEmail = async function() {
+        window.showToneSelector();
+    }
+
+    // Close email modal - REMOVED (already defined at top)
+    // closeEmailModal is already defined above
+
+    // Loading animation for email generation
+    let loadingInterval;
+    let dotCount = 0;
+
+    function startLoadingAnimation() {
+        dotCount = 0;
+        const messages = [
+            '🔍 Analyzing client data',
+            '📊 Reviewing invoice details',
+            '✍️ Crafting personalized content',
+            '⚡ Optimizing for clarity',
+            '📝 Finalizing email draft'
+        ];
+        let messageIndex = 0;
+
+        // Add loading class to disable other inputs
+        document.querySelector('.email-content').classList.add('loading');
+        document.getElementById('emailContent').classList.add('loading-indicator');
+
+        loadingInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            const dots = '.'.repeat(dotCount);
+            const spaces = '\u00A0'.repeat(3 - dotCount); // non-breaking spaces
+
+            // Update message every 5 seconds
+            if (dotCount === 0) {
+                messageIndex = (messageIndex + 1) % messages.length;
+            }
+
+            const bodyText = `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}`;
+            document.getElementById('emailContent').value = bodyText;
+        }, 500);
+    }
+
+    function stopLoadingAnimation() {
+        if (loadingInterval) {
+            clearInterval(loadingInterval);
+            loadingInterval = null;
+        }
+        // Remove loading classes
+        document.querySelector('.email-content').classList.remove('loading');
+        document.getElementById('emailContent').classList.remove('loading-indicator');
+    }
+
+    // Send email - make globally accessible
+    window.sendEmail = async function() {
+        console.log('sendEmail called');
+        const subject = document.getElementById('emailSubject').value;
+        const content = document.getElementById('emailContent').value;
+        const to = document.getElementById('emailTo').value;
+
+        try {
+            const response = await fetch('/api/send-workflow-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    to: to,
+                    subject: subject,
+                    content: content,
+                    type: window.currentAction ? window.currentAction.type : 'collection',
+                    metadata: window.currentAction
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert('Email sent successfully!');
+                window.closeModal();
+            } else {
+                alert('Failed to send email: ' + (result.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error sending email:', error);
+            alert('Failed to send email: ' + error.message);
+        }
+    }
+
+    // AI Rewrite function - simplified version
+    window.aiRewrite = async function() {
+        console.log('AI Rewrite called');
+        const currentContent = document.getElementById('emailContent').value;
+
+        if (!currentContent) {
+            alert('Please wait for the initial email to be generated first.');
+            return;
+        }
+
+        // Show loading state
+        const emailContent = document.getElementById('emailContent');
+        emailContent.disabled = true;
+        emailContent.style.opacity = '0.5';
+
+        try {
+            // Regenerate with a different tone
+            await window.generateEmail(window.currentAction.type || 'collection', true, 'professional');
+        } finally {
+            emailContent.disabled = false;
+            emailContent.style.opacity = '1';
+        }
+    }
+
+    // Close modal when clicking outside (like admin page)
+    window.onclick = function(event) {
+        const modal = document.getElementById('emailModal');
+        if (event.target === modal) {
+            window.closeModal();
+        }
+    }
+
+    // Cancel action
+    function cancelAction() {
+        currentAction = null;
+    }
+
+    // Bulk actions (optional)
+    function sendBulkCollections() {
+        // Implement bulk send logic
+        alert('Collection nudges sent!');
+        cancelAction();
+    }
+
+    function sendBulkNotifications() {
+        // Implement bulk send logic
+        alert('Notifications sent!');
+        cancelAction();
+    }
+
+    // Genie Chat Functions with Streaming Support
+    let chatHistory = [];
+    let currentRequestController = null;
+    let isRequestInProgress = false;
+    let lastQueryData = null;
+    let lastQuerySQL = null;
+    let lastQueryDescription = null;
+
+    window.lastQueryData = null;
+    window.exportMetadata = null;
+
+    function openGenieChat() {
+        document.getElementById('genieChatOverlay').classList.add('active');
+        // Show export button if data is available
+        const exportBtn = document.getElementById('exportDataBtn');
+        if (exportBtn && window.lastQueryData) {
+            exportBtn.style.display = 'block';
+        }
+    }
+
+    function closeGenieChat() {
+        document.getElementById('genieChatOverlay').classList.remove('active');
+    }
+
+    function addChatMessage(type, content) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+
+        if (type === 'user') {
+            messageDiv.textContent = content;
+        } else if (type === 'genie') {
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+            textDiv.textContent = content;
+            messageDiv.appendChild(textDiv);
+        } else {
+            messageDiv.innerHTML = content;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return messageDiv;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatMarkdown(text) {
+        // Convert markdown to HTML
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code style="background: #fafafa; padding: 2px 4px; border-radius: 3px;">$1</code>')
+            .replace(/\n\n/g, '<br><br>')
+            .replace(/\n/g, '<br>')
+            .replace(/\|([^\n]+)\|/g, (match) => {
+                // Simple table formatting
+                if (match.includes('---')) return match;
+                return match.replace(/\|/g, ' | ');
+            });
+    }
+
+    function formatSQL(sql) {
+        // Basic SQL formatting
+        return sql
+            .replace(/\b(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|AND|OR|AS|WITH)\b/gi,
+                (match) => '\n' + match.toUpperCase())
+            .replace(/,/g, ',\n  ')
+            .trim();
+    }
+
+    function addFormattedMessage(type, content) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type === 'genie' ? 'assistant' : type}`;
+
+        if (type === 'genie' || type === 'assistant') {
+            messageDiv.innerHTML = `<div style="font-size: 13px; line-height: 1.5;">${formatMarkdown(content)}</div>`;
+        } else {
+            messageDiv.textContent = content;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return messageDiv;
+    }
+
+    function askGenie(question, isFollowUp = false) {
+        // Abort any ongoing request
+        if (currentRequestController) {
+            currentRequestController.abort();
+            currentRequestController = null;
+            isRequestInProgress = false;
+        }
+
+        // Determine which chat container to use - modal takes priority if it's open
+        const modal = document.getElementById('chatModal');
+        const isModalOpen = modal && modal.classList.contains('show');
+
+        let chatMessages;
+        if (isModalOpen) {
+            // Use modal's chat messages
+            chatMessages = modal.querySelector('#chatView .chat-messages');
+        } else {
+            // Use FAB's chat messages
+            document.getElementById('chatQuestions').style.display = 'none';
+            document.getElementById('chatMessages').style.display = 'flex';
+            document.getElementById('chatInputContainer').classList.add('active');
+            chatMessages = document.getElementById('chatMessages');
+        }
+
+        // Add user message
+        addChatMessage('user', question);
+
+        // Create status container for thought process visualization
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'chat-message genie thought-process';
+        statusDiv.style.cssText = 'background-color: #f0f3f7; border-left: 3px solid #3498db; padding: 12px; margin: 10px 0; border-radius: 8px; color: #374151;';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #007acc; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <strong style="color: #3498db;">Genie:</strong> <em style="color: #6b7280;">Analyzing your question...</em>
+            </div>
+            <div class="genie-steps" style="margin-top: 10px; font-size: 12px; color: #6b7280;"></div>
+        `;
+        chatMessages.appendChild(statusDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Add spinner animation CSS if not already present
+        if (!document.querySelector('#spinner-style')) {
+            const style = document.createElement('style');
+            style.id = 'spinner-style';
+            style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+
+        // Create new AbortController for this request
+        currentRequestController = new AbortController();
+        isRequestInProgress = true;
+
+        let messageBuffer = '';
+        let currentSQL = '';
+        let responseStarted = false;
+        let currentResponseDiv = null;
+
+        // Use streaming endpoint
+        fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: question }),
+            signal: currentRequestController.signal
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function processStream() {
+                return reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // Final formatting when done
+                        if (messageBuffer && !responseStarted) {
+                            // Keep status visible with the steps
+                            const spinnerDiv = statusDiv.querySelector('.spinner');
+                            if (spinnerDiv) {
+                                spinnerDiv.style.display = 'none';
+                            }
+                            const statusText = statusDiv.querySelector('em');
+                            if (statusText) {
+                                statusText.textContent = 'Analysis complete';
+                                statusText.style.color = '#28a745';
+                            }
+                            // Create a new message for non-streamed response
+                            addFormattedMessage('genie', messageBuffer);
+                        }
+                        return;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                console.log('Stream data received:', data.type, data);
+
+                                if (data.type === 'tool_start') {
+                                    // Show which Genie room is being queried
+                                    const stepsDiv = statusDiv.querySelector('.genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.id = `tool-${data.tool}`;
+                                        stepItem.style.cssText = 'margin: 4px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">🔍</span>
+                                            <span>Querying ${data.source || 'Genie'}...</span>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+
+                                        // Show the question being asked
+                                        if (data.question) {
+                                            const detailItem = document.createElement('div');
+                                            detailItem.style.cssText = 'margin: 2px 0 2px 40px; font-size: 11px; color: #7f8c8d; font-style: italic;';
+                                            detailItem.innerHTML = `"${data.question}"`;
+                                            stepsDiv.appendChild(detailItem);
+                                        }
+                                    }
+                                } else if (data.type === 'status') {
+                                    // Legacy status handling (kept for compatibility)
+                                    const stepsDiv = statusDiv.querySelector('.genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.style.cssText = 'margin: 4px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">✓</span>
+                                            <span>${data.message}</span>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+                                    }
+                                } else if (data.type === 'query_detail') {
+                                    // Legacy query detail handling (kept for compatibility)
+                                    const stepsDiv = statusDiv.querySelector('.genie-steps');
+                                    if (stepsDiv) {
+                                        const detailItem = document.createElement('div');
+                                        detailItem.style.cssText = 'margin: 2px 0 2px 40px; font-size: 11px; color: #6b7280;';
+                                        detailItem.innerHTML = `• ${data.content}`;
+                                        stepsDiv.appendChild(detailItem);
+                                    }
+                                } else if (data.type === 'sql') {
+                                    // Store SQL but don't display here - it will be shown in tool_result
+                                    currentSQL = data.content;
+                                } else if (data.type === 'timing') {
+                                    // Log individual timing events for debugging
+                                    console.log('⏱️ TIMING EVENT:', data.message);
+                                } else if (data.type === 'timing_report') {
+                                    // Log timing report for debugging only - DO NOT show to user
+                                    console.log('⏱️ TIMING REPORT:', data.timings);
+                                    console.log('⏱️ Summary:', data.summary);
+                                } else if (data.type === 'tool_result') {
+                                    // Show results with rich metadata
+                                    const stepsDiv = statusDiv.querySelector('.genie-steps');
+                                    if (stepsDiv) {
+                                        // Store raw data if available
+                                        if (data.raw_data && data.raw_data.length > 0) {
+                                            window.lastQueryData = data.raw_data;
+                                            lastQueryData = data.raw_data;
+                                            console.log('✅ Stored raw query data:', data.raw_data.length, 'rows');
+                                            console.log('First row keys:', Object.keys(data.raw_data[0]));
+                                            console.log('Sample first row:', data.raw_data[0]);
+
+                                            // Show export button
+                                            const exportBtn = document.getElementById('exportDataBtn');
+                                            if (exportBtn) {
+                                                exportBtn.style.display = 'inline-block';
+                                            }
+                                        }
+
+                                        if (data.description) {
+                                            lastQueryDescription = data.description;
+                                            const descItem = document.createElement('div');
+                                            descItem.style.cssText = 'margin: 6px 0; padding-left: 20px; position: relative;';
+                                            descItem.innerHTML = `
+                                                <span style="position: absolute; left: 0; color: #28a745;">✓</span>
+                                                <span style="color: #28a745;">${data.description}</span>
+                                            `;
+                                            stepsDiv.appendChild(descItem);
+                                        }
+
+                                        if (data.sql) {
+                                            lastQuerySQL = data.sql;
+                                            const formattedSQL = formatSQL(data.sql);
+                                            const sqlContainer = document.createElement('div');
+                                            sqlContainer.style.cssText = 'margin: 8px 0 8px 20px;';
+                                            sqlContainer.innerHTML = `
+                                                <details style="margin: 0;">
+                                                    <summary style="cursor: pointer; color: #3498db; font-size: 12px;">View SQL Query</summary>
+                                                    <pre class="sql-query-display" style="background: #fafafa; color: #374151; padding: 12px; border-radius: 6px; margin-top: 8px; font-size: 12px; font-family: 'Monaco', 'Consolas', monospace; overflow-x: auto; border: 1px solid #34495e; line-height: 1.4; max-height: 300px; overflow-y: auto;">${escapeHtml(formattedSQL)}</pre>
+                                                </details>
+                                            `;
+                                            stepsDiv.appendChild(sqlContainer);
+                                        }
+
+                                        if (data.tables && data.tables.length > 0) {
+                                            const tablesItem = document.createElement('div');
+                                            tablesItem.style.cssText = 'margin: 4px 0 4px 40px; font-size: 11px; color: #6b7280;';
+                                            tablesItem.innerHTML = `📊 Tables accessed: ${data.tables.join(', ')}`;
+                                            stepsDiv.appendChild(tablesItem);
+                                        }
+
+                                        if (data.row_count !== null && data.row_count !== undefined) {
+                                            const rowsItem = document.createElement('div');
+                                            rowsItem.style.cssText = 'margin: 4px 0 4px 40px; font-size: 11px; color: #6b7280;';
+                                            rowsItem.innerHTML = `📈 ${data.row_count} rows found`;
+                                            stepsDiv.appendChild(rowsItem);
+                                        }
+                                    }
+                                } else if (data.type === 'token') {
+                                    if (!responseStarted) {
+                                        responseStarted = true;
+                                        // Don't update status yet - keep showing "Analyzing..."
+                                        // Just hide the spinner
+                                        const spinnerDiv = statusDiv.querySelector('.spinner');
+                                        if (spinnerDiv) {
+                                            spinnerDiv.style.display = 'none';
+                                        }
+                                        // Create a new response div for this specific response
+                                        currentResponseDiv = document.createElement('div');
+                                        currentResponseDiv.className = 'message assistant';
+                                        chatMessages.appendChild(currentResponseDiv);
+                                    }
+                                    messageBuffer += data.content;
+                                    // Update the specific response div for this request
+                                    if (currentResponseDiv) {
+                                        const formatted = formatMarkdown(messageBuffer);
+                                        currentResponseDiv.innerHTML = formatted;
+                                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                                    }
+                                } else if (data.type === 'error') {
+                                    addChatMessage('error', `Error: ${data.message}`);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing stream data:', e);
+                            }
+                        }
+                    }
+
+                    return processStream();
+                }).catch(error => {
+                    console.error('Stream read error:', error);
+                    // Don't add error message here, just log it
+                    // The error will be handled by the outer catch if needed
+                });
+            }
+
+            return processStream().then(() => {
+                // After streaming is complete, get the final formatted response
+                // Store metadata for potential future use (not for CSV export)
+                const fullMetadata = {
+                    timestamp: new Date().toISOString(),
+                    question: question,
+                    description: lastQueryDescription || '',
+                    sql_query: lastQuerySQL || '',
+                    data: lastQueryData || []
+                };
+                window.exportMetadata = fullMetadata;
+
+                // Only update status if we actually got a response (not an error)
+                if (responseStarted || (window.lastQueryData && window.lastQueryData.length > 0)) {
+                    // Update status to show completion but keep the steps visible
+                    const spinnerDiv = statusDiv.querySelector('.spinner');
+                    if (spinnerDiv) {
+                        spinnerDiv.style.display = 'none';
+                    }
+                    const statusText = statusDiv.querySelector('em');
+                    if (statusText) {
+                        statusText.textContent = 'Analysis complete';
+                        statusText.style.color = '#28a745';
+                    }
+
+                    // Show export button if we have data
+                    if (window.lastQueryData && window.lastQueryData.length > 0) {
+                        const exportBtn = document.getElementById('exportDataBtn');
+                        if (exportBtn) {
+                            exportBtn.style.display = 'inline-block';
+                        }
+                    }
+                }
+            }).catch(streamError => {
+                // Stream-specific error already handled in processStream
+                console.log('Stream processing error handled:', streamError);
+            });
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') {
+                console.log('Request was aborted');
+                return;
+            }
+            console.error('Streaming error:', error);
+
+            // Update status to show error but keep the steps visible
+            const spinnerDiv = statusDiv.querySelector('.spinner');
+            if (spinnerDiv) {
+                spinnerDiv.style.display = 'none';
+            }
+            const statusText = statusDiv.querySelector('em');
+            if (statusText) {
+                statusText.textContent = 'Error occurred';
+                statusText.style.color = '#dc3545';
+            }
+
+            // Show error message
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'message assistant';
+            errorMessage.innerHTML = 'Sorry, I encountered an error. Please try again.';
+            messagesContainer.appendChild(errorMessage);
+        })
+        .finally(() => {
+            currentRequestController = null;
+            isRequestInProgress = false;
+        });
+    }
+
+    function formatSQL(sql) {
+        if (!sql) return sql;
+
+        let formatted = sql;
+        formatted = formatted.replace(/\s+(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT)/gi, '\n$1');
+        formatted = formatted.replace(/\s+(LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN)/gi, '\n$1');
+        formatted = formatted.replace(/\s+AND\s+/gi, '\n  AND ');
+        formatted = formatted.replace(/\s+OR\s+/gi, '\n  OR ');
+        formatted = formatted.replace(/\(\s*SELECT/gi, '(\n  SELECT');
+        formatted = formatted.replace(/\s+/g, ' ').trim();
+
+        const lines = formatted.split('\n');
+        let indentLevel = 0;
+        const formattedLines = lines.map(line => {
+            line = line.trim();
+            if (line.startsWith(')')) {
+                indentLevel = Math.max(0, indentLevel - 1);
+            }
+            const indentedLine = '  '.repeat(indentLevel) + line;
+            if (line.includes('(') && line.includes('SELECT')) {
+                indentLevel++;
+            }
+            return indentedLine;
+        });
+
+        return formattedLines.join('\n');
+    }
+
+    function formatMarkdown(text) {
+        let formatted = text;
+
+        // Format tables - must be done before other replacements
+        const tableRegex = /(\|.*\|[\r\n]+)+/g;
+        formatted = formatted.replace(tableRegex, (match) => {
+            const lines = match.trim().split('\n');
+            if (lines.length < 2) return match;
+
+            // Check if second line is separator
+            const isSeparator = lines[1] && lines[1].includes('---');
+            const startIdx = isSeparator ? 2 : 0;
+            const headerLine = isSeparator ? lines[0] : null;
+
+            let tableHtml = '<table style="width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px;">';
+
+            // Add header if exists
+            if (headerLine) {
+                tableHtml += '<thead><tr style="background: rgba(52, 152, 219, 0.1);">';
+                const headers = headerLine.split('|').filter(cell => cell.trim());
+                headers.forEach(header => {
+                    tableHtml += `<th style="padding: 8px; border: 1px solid rgba(52, 152, 219, 0.3); text-align: left; font-weight: 600;">${header.trim()}</th>`;
+                });
+                tableHtml += '</tr></thead>';
+            }
+
+            // Add body rows
+            tableHtml += '<tbody>';
+            for (let i = startIdx; i < lines.length; i++) {
+                if (!lines[i].includes('---')) {
+                    const cells = lines[i].split('|').filter(cell => cell.trim());
+                    if (cells.length > 0) {
+                        tableHtml += '<tr>';
+                        cells.forEach(cell => {
+                            tableHtml += `<td style="padding: 8px; border: 1px solid rgba(52, 152, 219, 0.2);">${cell.trim()}</td>`;
+                        });
+                        tableHtml += '</tr>';
+                    }
+                }
+            }
+            tableHtml += '</tbody></table>';
+            return tableHtml;
+        });
+
+        // Format headers
+        formatted = formatted.replace(/^### (.*?)$/gm, '<h3 style="font-size: 14px; font-weight: 600; margin: 10px 0 6px 0;">$1</h3>');
+        formatted = formatted.replace(/^## (.*?)$/gm, '<h2 style="font-size: 15px; font-weight: 600; margin: 12px 0 8px 0;">$1</h2>');
+        formatted = formatted.replace(/^# (.*?)$/gm, '<h1 style="font-size: 16px; font-weight: 600; margin: 12px 0 8px 0;">$1</h1>');
+
+        // Format bold and italic
+        formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+        // Format code blocks
+        formatted = formatted.replace(/```sql\n([\s\S]+?)```/g,
+            '<pre style="background: #1e2329; padding: 10px; border-radius: 4px; margin: 8px 0; overflow-x: auto; font-size: 12px; font-family: monospace; color: #e0e0e0;">$1</pre>');
+        formatted = formatted.replace(/```\n([\s\S]+?)```/g,
+            '<pre style="background: #1e2329; padding: 10px; border-radius: 4px; margin: 8px 0; overflow-x: auto; font-size: 12px; font-family: monospace; color: #e0e0e0;">$1</pre>');
+        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #1e2329; padding: 2px 4px; border-radius: 3px; font-size: 12px;">$1</code>');
+
+        // Format lists
+        formatted = formatted.replace(/^\* (.+)$/gm, '<li style="font-size: 13px; line-height: 1.5; margin: 4px 0;">$1</li>');
+        formatted = formatted.replace(/(<li.*?<\/li>)/s, '<ul style="margin: 8px 0; padding-left: 20px;">$1</ul>');
+
+        // Format line breaks
+        formatted = formatted.replace(/\n\n/g, '</p><p style="font-size: 13px; line-height: 1.5; margin: 8px 0;">');
+        formatted = formatted.replace(/\n/g, '<br>');
+
+        // Wrap in paragraph if not already wrapped
+        if (!formatted.startsWith('<')) {
+            formatted = `<p style="font-size: 13px; line-height: 1.5; margin: 8px 0;">${formatted}</p>`;
+        }
+
+        return formatted;
+    }
+
+    // Export functionality
+    window.exportData = function() {
+        try {
+            let csvContent = '';
+            let filename = 'finance_data_export.csv';
+
+            // Use raw query data if available
+            if (window.lastQueryData && window.lastQueryData.length > 0) {
+                console.log('Exporting data:', window.lastQueryData.length, 'rows');
+                console.log('First row of export data:', window.lastQueryData[0]);
+
+                const headers = Object.keys(window.lastQueryData[0]);
+                console.log('Export headers:', headers);
+                csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+
+                window.lastQueryData.forEach(row => {
+                    const values = headers.map(h => {
+                        const val = row[h];
+                        if (val === null || val === undefined) return '""';
+                        const str = String(val);
+                        const escaped = str.replace(/"/g, '""');
+                        return `"${escaped}"`;
+                    });
+                    csvContent += values.join(',') + '\n';
+                });
+
+                filename = 'finance_query_results.csv';
+            } else {
+                alert('No query data available to export. Please run a query first.');
+                return;
+            }
+
+            // Download CSV
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            console.log('Export completed successfully');
+        } catch (e) {
+            alert('Export failed: ' + e.message);
+            console.error(e);
+        }
+    };
+
+    function sendChatMessage() {
+        const input = document.getElementById('chatInput');
+        const question = input.value.trim();
+
+        if (question && !isRequestInProgress) {
+            askGenie(question, true);
+            input.value = '';
+        }
+    }
+
+    function handleChatKeyPress(event) {
+        if (event.key === 'Enter' && !isRequestInProgress) {
+            sendChatMessage();
+        }
+    }
+
+    // Close chat when clicking overlay
+    document.getElementById('genieChatOverlay').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeGenieChat();
+        }
+    });
+
+</script>
+
+</div><!-- End of background wrapper div -->
+
+{% endblock %}

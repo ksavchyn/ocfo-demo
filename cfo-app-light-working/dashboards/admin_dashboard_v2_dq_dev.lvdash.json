@@ -1,0 +1,2814 @@
+{
+  "datasets": [
+    {
+      "name": "filter_regions",
+      "displayName": "Region Filter Values",
+      "queryLines": [
+        "  SELECT DISTINCT\n",
+        "      region as value,\n",
+        "      region as label\n",
+        "  FROM main.cfo_proserv_dev.gold_regional_pnl\n",
+        "  WHERE region IS NOT NULL\n",
+        "  ORDER BY value"
+      ]
+    },
+    {
+      "name": "filter_locations",
+      "displayName": "Location Filter Values",
+      "queryLines": [
+        " SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          location as value,\n",
+        "          location as label\n",
+        "      FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "      WHERE location IS NOT NULL\n",
+        "  ) t\n",
+        "  ORDER BY value"
+      ]
+    },
+    {
+      "name": "filter_practice_areas",
+      "displayName": "Practice Area Filter Values",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          practice_area as value,\n",
+        "          practice_area as label\n",
+        "      FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "      WHERE practice_area IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "filter_industries",
+      "displayName": "Industry Filter Values",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          industry as value,\n",
+        "          industry as label\n",
+        "      FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "      WHERE industry IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "filter_customers",
+      "displayName": "Customer Filter Values",
+      "queryLines": [
+        "SELECT value, label FROM (\n",
+        "      SELECT DISTINCT\n",
+        "          customer as value,\n",
+        "          customer as label\n",
+        "      FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "      WHERE customer IS NOT NULL\n",
+        "\n",
+        "      UNION ALL\n",
+        "\n",
+        "      SELECT\n",
+        "          'All' as value,\n",
+        "          'All' as label\n",
+        "  ) t\n",
+        "  ORDER BY CASE WHEN value = 'All' THEN 0 ELSE 1 END, value"
+      ]
+    },
+    {
+      "name": "accrued_revenues_calc",
+      "displayName": "Accrued Revenues",
+      "queryLines": [
+        "-- Accrued Revenues: last complete month actual (annualized) vs forecast (annualized)\n",
+        "WITH metrics AS (\n",
+        "    SELECT\n",
+        "        SUM(total_revenue) * 12 AS annualized_revenue,\n",
+        "        SUM(budgeted_revenue) * 12 AS forecasted_revenue\n",
+        "    FROM main.cfo_proserv_dev.gold_regional_pnl\n",
+        "    WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        ")\n",
+        "SELECT annualized_revenue AS current_value, forecasted_revenue AS previous_value FROM metrics\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "partner_headcount_calc",
+      "displayName": "Partner Headcount",
+      "queryLines": [
+        "-- Partner Headcount: M/M comparison (active partners only — excludes terminated employees that appear in latest snapshot)\n",
+        "WITH max_snap AS (\n",
+        "    SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv_dev.silver_dim_employees\n",
+        "),\n",
+        "prior_snap AS (\n",
+        "    SELECT MAX(snapshot_date) AS prior_date\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, max_snap\n",
+        "    WHERE snapshot_date <= DATE_SUB(max_date, 30)\n",
+        "),\n",
+        "current_partners AS (\n",
+        "    SELECT COUNT(DISTINCT employee_id) AS partner_count\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, max_snap\n",
+        "    WHERE job_level = 'Partner' AND snapshot_date = max_date\n",
+        "      AND employment_status = 'Active'\n",
+        "),\n",
+        "previous_partners AS (\n",
+        "    SELECT COUNT(DISTINCT employee_id) AS partner_count\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, prior_snap\n",
+        "    WHERE job_level = 'Partner' AND snapshot_date = prior_date\n",
+        "      AND employment_status = 'Active'\n",
+        ")\n",
+        "SELECT c.partner_count AS current_value, p.partner_count AS previous_value\n",
+        "FROM current_partners c CROSS JOIN previous_partners p\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "revenue_per_partner_calc",
+      "displayName": "Revenue per Partner",
+      "queryLines": [
+        "-- Revenue per Partner: YoY (last complete month vs same month last year, active partners only)\n",
+        "WITH max_snap AS (\n",
+        "    SELECT MAX(snapshot_date) AS max_date FROM main.cfo_proserv_dev.silver_dim_employees\n",
+        "),\n",
+        "yoy_snap AS (\n",
+        "    SELECT MAX(snapshot_date) AS yoy_date\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, max_snap\n",
+        "    WHERE snapshot_date <= ADD_MONTHS(max_date, -12)\n",
+        "),\n",
+        "current_partners AS (\n",
+        "    SELECT COUNT(DISTINCT employee_id) AS partner_count\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, max_snap\n",
+        "    WHERE job_level = 'Partner' AND snapshot_date = max_date\n",
+        "      AND employment_status = 'Active'\n",
+        "),\n",
+        "yoy_partners AS (\n",
+        "    SELECT COUNT(DISTINCT employee_id) AS partner_count\n",
+        "    FROM main.cfo_proserv_dev.silver_dim_employees, yoy_snap\n",
+        "    WHERE job_level = 'Partner' AND snapshot_date = yoy_date\n",
+        "      AND employment_status = 'Active'\n",
+        "),\n",
+        "current_revenue AS (\n",
+        "    SELECT SUM(revenue) * 12 AS rev\n",
+        "    FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "    WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "),\n",
+        "yoy_revenue AS (\n",
+        "    SELECT SUM(revenue) * 12 AS rev\n",
+        "    FROM main.cfo_proserv_dev.gold_enterprise_metrics\n",
+        "    WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -13)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        ")\n",
+        "SELECT\n",
+        "    CASE WHEN cp.partner_count > 0 THEN cr.rev / cp.partner_count ELSE 0 END AS current_value,\n",
+        "    CASE WHEN yp.partner_count > 0 THEN yr.rev / yp.partner_count ELSE 0 END AS previous_value\n",
+        "FROM current_revenue cr CROSS JOIN current_partners cp\n",
+        "CROSS JOIN yoy_revenue yr CROSS JOIN yoy_partners yp\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "expenses_calc",
+      "displayName": "Expenses",
+      "queryLines": [
+        "-- Expenses: last complete month actual (annualized) vs forecast (annualized)\n",
+        "WITH metrics AS (\n",
+        "    SELECT\n",
+        "        SUM(billable_expenses + corporate_expenses + marketing_expenses + tech_expenses + other_expenses) * 12 AS annualized_actual,\n",
+        "        SUM(budgeted_expenses) * 12 AS annualized_budget\n",
+        "    FROM main.cfo_proserv_dev.gold_regional_pnl\n",
+        "    WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        ")\n",
+        "SELECT annualized_actual AS current_value, annualized_budget AS previous_value FROM metrics\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "project_margins_calc",
+      "displayName": "Project Gross Margins",
+      "queryLines": [
+        "-- Project Gross Margins: QoQ comparison (last 90 days vs prior 90 days)\n",
+        "-- Divide by 100 because actual_margin_pct is stored as 10-50 range and widget formatter multiplies by 100\n",
+        "WITH current_margins AS (\n",
+        "    SELECT SUM(actual_margin) / NULLIF(SUM(actual_revenue), 0) AS avg_margin\n",
+        "    FROM main.cfo_proserv_dev.gold_project_profitability\n",
+        "    WHERE \n",
+        "     project_end_date >= DATE_SUB(CURRENT_DATE(), 90)\n",
+        "),\n",
+        "previous_margins AS (\n",
+        "    SELECT SUM(actual_margin) / NULLIF(SUM(actual_revenue), 0) AS avg_margin\n",
+        "    FROM main.cfo_proserv_dev.gold_project_profitability\n",
+        "    WHERE \n",
+        "     project_end_date BETWEEN DATE_SUB(CURRENT_DATE(), 180) AND DATE_SUB(CURRENT_DATE(), 90)\n",
+        ")\n",
+        "SELECT COALESCE(c.avg_margin, 0) AS current_value, COALESCE(p.avg_margin, 0) AS previous_value\n",
+        "FROM current_margins c CROSS JOIN previous_margins p\n"
+      ]
+    },
+    {
+      "name": "regional_revenue_trends",
+      "displayName": "Regional Revenue Trends",
+      "queryLines": [
+        "WITH filtered_data AS (\n",
+        "\n",
+        "    SELECT\n",
+        "\n",
+        "      location as office,\n",
+        "\n",
+        "      SUM(CASE WHEN revenue_type = 'Billable' THEN total_revenue ELSE 0 END) as billable_revenue,\n",
+        "\n",
+        "      SUM(CASE WHEN revenue_type = 'Products' THEN total_revenue ELSE 0 END) as products_revenue,\n",
+        "\n",
+        "      SUM(CASE WHEN revenue_type = 'Partnerships' THEN total_revenue ELSE 0 END) as partnerships_revenue,\n",
+        "\n",
+        "      SUM(CASE WHEN revenue_type = 'Other' THEN total_revenue ELSE 0 END) as other_revenue,\n",
+        "\n",
+        "      SUM(budgeted_revenue) as projected_revenue       -- real per-office target from gold_regional_pnl.budgeted_revenue\n",
+        "\n",
+        "    FROM main.cfo_proserv_dev.gold_regional_pnl\n",
+        "\n",
+        "    WHERE\n",
+        "\n",
+        "      fiscal_period >= DATE_SUB(CURRENT_DATE(), 180)\n",
+        "\n",
+        "      AND (:region IS NULL\n",
+        "\n",
+        "           OR array_size(:region) = 0\n",
+        "\n",
+        "           OR array_contains(:region, 'All')\n",
+        "\n",
+        "           OR array_contains(:region, region))\n",
+        "\n",
+        "      AND (:location IS NULL\n",
+        "\n",
+        "           OR array_size(:location) = 0\n",
+        "\n",
+        "           OR array_contains(:location, 'All')\n",
+        "\n",
+        "           OR array_contains(:location, location))\n",
+        "\n",
+        "      AND (:practice_area IS NULL\n",
+        "\n",
+        "           OR array_size(:practice_area) = 0\n",
+        "\n",
+        "           OR array_contains(:practice_area, 'All')\n",
+        "\n",
+        "           OR array_contains(:practice_area, practice_area))\n",
+        "\n",
+        "      AND (:industry IS NULL\n",
+        "\n",
+        "           OR array_size(:industry) = 0\n",
+        "\n",
+        "           OR array_contains(:industry, 'All')\n",
+        "\n",
+        "           OR array_contains(:industry, industry))\n",
+        "\n",
+        "      AND (:customer IS NULL\n",
+        "\n",
+        "           OR array_size(:customer) = 0\n",
+        "\n",
+        "           OR array_contains(:customer, 'All')\n",
+        "\n",
+        "           OR array_contains(:customer, customer))\n",
+        "\n",
+        "    GROUP BY location\n",
+        "\n",
+        "  )\n",
+        "\n",
+        "  SELECT * FROM filtered_data\n",
+        "\n",
+        "  ORDER BY office\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "regional_expense_trends",
+      "displayName": "Regional Expense Trends",
+      "queryLines": [
+        "WITH filtered_data AS (\n",
+        "    SELECT\n",
+        "      location as office,\n",
+        "      SUM(billable_expenses)  as billable_expenses,\n",
+        "      SUM(corporate_expenses) as corporate_expenses,\n",
+        "      SUM(marketing_expenses) as marketing_expenses,\n",
+        "      SUM(tech_expenses)      as tech_expenses,\n",
+        "      SUM(other_expenses)     as other_expenses,\n",
+        "      SUM(budgeted_expenses)  as budgeted_expenses\n",
+        "    FROM main.cfo_proserv_dev.gold_regional_pnl\n",
+        "    WHERE\n",
+        "      fiscal_period >= DATE_SUB(CURRENT_DATE(), 180)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
+        "    GROUP BY location\n",
+        ")\n",
+        "SELECT * FROM filtered_data ORDER BY office\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "industry_breakdown",
+      "displayName": "Industry Revenue Breakdown",
+      "queryLines": [
+        " -- Industry revenue breakdown (Using Real Data)\n",
+        "  SELECT\n",
+        "    industry,\n",
+        "    SUM(actual_revenue) as revenue\n",
+        "  FROM main.cfo_proserv_dev.gold_project_profitability\n",
+        "  WHERE project_status IN ('Active', 'Completed')\n",
+        "    AND actual_revenue > 0\n",
+        "    AND (:region IS NULL\n",
+        "         OR array_size(:region) = 0\n",
+        "         OR array_contains(:region, 'All')\n",
+        "         OR array_contains(:region, region))\n",
+        "    AND (:location IS NULL\n",
+        "         OR array_size(:location) = 0\n",
+        "         OR array_contains(:location, 'All')\n",
+        "         OR array_contains(:location, location))\n",
+        "    AND (:practice_area IS NULL\n",
+        "         OR array_size(:practice_area) = 0\n",
+        "         OR array_contains(:practice_area, 'All')\n",
+        "         OR array_contains(:practice_area, practice_area))\n",
+        "    AND (:industry IS NULL\n",
+        "         OR array_size(:industry) = 0\n",
+        "         OR array_contains(:industry, 'All')\n",
+        "         OR array_contains(:industry, industry))\n",
+        "    AND (:customer IS NULL\n",
+        "         OR array_size(:customer) = 0\n",
+        "         OR array_contains(:customer, 'All')\n",
+        "         OR array_contains(:customer, customer))\n",
+        "  GROUP BY industry\n",
+        "  ORDER BY revenue DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "practice_area_breakdown",
+      "displayName": "Practice Area Breakdown",
+      "queryLines": [
+        "  -- Practice area revenue breakdown (Using Real Data)\n",
+        "  SELECT\n",
+        "    practice_area as practice,\n",
+        "    SUM(actual_revenue) as revenue\n",
+        "  FROM main.cfo_proserv_dev.gold_project_profitability\n",
+        "  WHERE project_status IN ('Active', 'Completed')\n",
+        "    AND actual_revenue > 0\n",
+        "    AND (:region IS NULL\n",
+        "         OR array_size(:region) = 0\n",
+        "         OR array_contains(:region, 'All')\n",
+        "         OR array_contains(:region, region))\n",
+        "    AND (:location IS NULL\n",
+        "         OR array_size(:location) = 0\n",
+        "         OR array_contains(:location, 'All')\n",
+        "         OR array_contains(:location, location))\n",
+        "    AND (:practice_area IS NULL\n",
+        "         OR array_size(:practice_area) = 0\n",
+        "         OR array_contains(:practice_area, 'All')\n",
+        "         OR array_contains(:practice_area, practice_area))\n",
+        "    AND (:industry IS NULL\n",
+        "         OR array_size(:industry) = 0\n",
+        "         OR array_contains(:industry, 'All')\n",
+        "         OR array_contains(:industry, industry))\n",
+        "    AND (:customer IS NULL\n",
+        "         OR array_size(:customer) = 0\n",
+        "         OR array_contains(:customer, 'All')\n",
+        "         OR array_contains(:customer, customer))\n",
+        "  GROUP BY practice_area\n",
+        "  ORDER BY revenue DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "region",
+          "keyword": "region",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "location",
+          "keyword": "location",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "practice_area",
+          "keyword": "practice_area",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "industry",
+          "keyword": "industry",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "customer",
+          "keyword": "customer",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "admin_deep_dive",
+      "displayName": "Admin Deep-dive",
+      "layout": [
+        {
+          "widget": {
+            "name": "accrued_revenues_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Accrued Revenues (ARR)\n(Actual vs. Forecast)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "partner_headcount_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Partner Headcount (MoM)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none"
+                  },
+                  "style": {
+                    "color": "#88CDCD",
+                    "fontSize": 24,
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ]
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "revenue_per_partner_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Revenue per Partner (YoY)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "expenses_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Expenses \n(Actual vs. Forecast)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "project_margins_kpi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "fields": [
+                    {
+                      "name": "previous_value",
+                      "expression": "`previous_value`"
+                    },
+                    {
+                      "name": "current_value",
+                      "expression": "`current_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Project Gross Margins (90d Rolling)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "current_value",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "color": "#88CDCD",
+                    "rules": [
+                      {
+                        "condition": {
+                          "operator": ">="
+                        },
+                        "color": "#00A972"
+                      },
+                      {
+                        "condition": {
+                          "operator": "<="
+                        },
+                        "color": "#BD2B26"
+                      }
+                    ],
+                    "fontSize": 24
+                  }
+                },
+                "target": {
+                  "fieldName": "previous_value",
+                  "change": {
+                    "type": "percent"
+                  },
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "regional_revenue_trends_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "fields": [
+                    {
+                      "name": "office",
+                      "expression": "`office`"
+                    },
+                    {
+                      "name": "billable_revenue",
+                      "expression": "`billable_revenue`"
+                    },
+                    {
+                      "name": "products_revenue",
+                      "expression": "`products_revenue`"
+                    },
+                    {
+                      "name": "partnerships_revenue",
+                      "expression": "`partnerships_revenue`"
+                    },
+                    {
+                      "name": "other_revenue",
+                      "expression": "`other_revenue`"
+                    },
+                    {
+                      "name": "projected_revenue",
+                      "expression": "`projected_revenue`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Regional Revenue Trends",
+                "showTitle": true
+              },
+              "mark": {
+                "colors": [
+                  "#2E7D32",
+                  "#66BB6A",
+                  "#81C784",
+                  "#A5D6A7",
+                  "#094E38",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 17
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "office",
+                  "displayName": "Office",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "billable_revenue",
+                        "displayName": "Billable Revenue"
+                      },
+                      {
+                        "fieldName": "products_revenue",
+                        "displayName": "Products Revenue"
+                      },
+                      {
+                        "fieldName": "partnerships_revenue",
+                        "displayName": "Partnerships Revenue"
+                      },
+                      {
+                        "fieldName": "other_revenue",
+                        "displayName": "Other Revenue"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "projected_revenue",
+                        "displayName": "Projected Revenue"
+                      }
+                    ]
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 10,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "regional_expense_trends_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "fields": [
+                    {
+                      "name": "office",
+                      "expression": "`office`"
+                    },
+                    {
+                      "name": "billable_expenses",
+                      "expression": "`billable_expenses`"
+                    },
+                    {
+                      "name": "corporate_expenses",
+                      "expression": "`corporate_expenses`"
+                    },
+                    {
+                      "name": "marketing_expenses",
+                      "expression": "`marketing_expenses`"
+                    },
+                    {
+                      "name": "tech_expenses",
+                      "expression": "`tech_expenses`"
+                    },
+                    {
+                      "name": "other_expenses",
+                      "expression": "`other_expenses`"
+                    },
+                    {
+                      "name": "budgeted_expenses",
+                      "expression": "`budgeted_expenses`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Regional Expense Trends",
+                "showTitle": true
+              },
+              "mark": {
+                "colors": [
+                  "#8B0000",
+                  "#C62828",
+                  "#E53935",
+                  "#EF5350",
+                  "#EF9A9A",
+                  "#56170D",
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 11
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 12
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 13
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 14
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 15
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 16
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 17
+                  }
+                ]
+              },
+              "widgetType": "combo",
+              "encodings": {
+                "x": {
+                  "fieldName": "office",
+                  "displayName": "Office",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "billable_expenses",
+                        "displayName": "Billable Expenses"
+                      },
+                      {
+                        "fieldName": "corporate_expenses",
+                        "displayName": "Corporate"
+                      },
+                      {
+                        "fieldName": "marketing_expenses",
+                        "displayName": "Marketing"
+                      },
+                      {
+                        "fieldName": "tech_expenses",
+                        "displayName": "Tech"
+                      },
+                      {
+                        "fieldName": "other_expenses",
+                        "displayName": "Other"
+                      }
+                    ]
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "budgeted_expenses",
+                        "displayName": "Budgeted Expenses"
+                      }
+                    ]
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 10,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "industry_breakdown_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "fields": [
+                    {
+                      "name": "revenue",
+                      "expression": "`revenue`"
+                    },
+                    {
+                      "name": "industry",
+                      "expression": "`industry`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Industry Revenue Breakdown",
+                "showTitle": true
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "revenue",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "displayName": "Revenue"
+                },
+                "color": {
+                  "fieldName": "industry",
+                  "displayName": "industry",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Financial Services",
+                        "color": "#1A3A6E"
+                      },
+                      {
+                        "value": "Consumer & Retail",
+                        "color": "#2E5A8C"
+                      },
+                      {
+                        "value": "Technology Media & Telecom",
+                        "color": "#4A77A8"
+                      },
+                      {
+                        "value": "Healthcare & Life Sciences",
+                        "color": "#5C8FB8"
+                      },
+                      {
+                        "value": "Industrials & Electronics",
+                        "color": "#7A99B8"
+                      },
+                      {
+                        "value": "Energy & Materials",
+                        "color": "#8A7BB8"
+                      },
+                      {
+                        "value": "Private Equity",
+                        "color": "#A695C8"
+                      },
+                      {
+                        "value": "Public & Social Sector",
+                        "color": "#C2B5DA"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 5,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "practice_area_breakdown_chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "fields": [
+                    {
+                      "name": "revenue",
+                      "expression": "`revenue`"
+                    },
+                    {
+                      "name": "practice",
+                      "expression": "`practice`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Revenue by Practice Area or Service Line",
+                "showTitle": true
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "revenue",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  },
+                  "displayName": "Revenue"
+                },
+                "color": {
+                  "fieldName": "practice",
+                  "displayName": "practice",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Strategy & Consulting",
+                        "color": "#A0522D"
+                      },
+                      {
+                        "value": "Technology",
+                        "color": "#E67E22"
+                      },
+                      {
+                        "value": "Operations",
+                        "color": "#922B21"
+                      },
+                      {
+                        "value": "Managed Services: Tech",
+                        "color": "#D35400"
+                      },
+                      {
+                        "value": "Tax",
+                        "color": "#C0392B"
+                      },
+                      {
+                        "value": "Managed Services: Ops",
+                        "color": "#F39C12"
+                      },
+                      {
+                        "value": "Accounting",
+                        "color": "#E55934"
+                      },
+                      {
+                        "value": "Audit",
+                        "color": "#F1C40F"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 15,
+            "width": 5,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "industry1",
+            "queries": [
+              {
+                "name": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d187d867e6d5154eec982_label",
+                "query": {
+                  "datasetName": "filter_industries",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_industry",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_industry",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_industry",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_industry",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_industry",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_industry",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_industry",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_industry",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_industry",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "parameters": [
+                    {
+                      "name": "industry",
+                      "keyword": "industry"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Industry"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d187d867e6d5154eec982_label"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_industry"
+                  },
+                  {
+                    "parameterName": "industry",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_industry"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "region1",
+            "queries": [
+              {
+                "name": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d185ea8d04a0ea136094f_label",
+                "query": {
+                  "datasetName": "filter_regions",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_region",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_region",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_region",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_region",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_region",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_region",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_region",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_region",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_region",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "parameters": [
+                    {
+                      "name": "region",
+                      "keyword": "region"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d185ea8d04a0ea136094f_label"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_region"
+                  },
+                  {
+                    "parameterName": "region",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "location",
+            "queries": [
+              {
+                "name": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d187482f8ae1e6c48b34c_label",
+                "query": {
+                  "datasetName": "filter_locations",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_location",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_location",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_location",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_location",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_location",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_location",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_location",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_location",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_location",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "parameters": [
+                    {
+                      "name": "location",
+                      "keyword": "location"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Location"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d187482f8ae1e6c48b34c_label"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_location"
+                  },
+                  {
+                    "parameterName": "location",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_location"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "practice1",
+            "queries": [
+              {
+                "name": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1879a3e0e63b53e9de70_label",
+                "query": {
+                  "datasetName": "filter_practice_areas",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_practice_area",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_practice_area",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_practice_area",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_practice_area",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_practice_area",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_practice_area",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_practice_area",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_practice_area",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_practice_area",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "parameters": [
+                    {
+                      "name": "practice_area",
+                      "keyword": "practice_area"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Practice"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1879a3e0e63b53e9de70_label"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_practice_area"
+                  },
+                  {
+                    "parameterName": "practice_area",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_practice_area"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "customer",
+            "queries": [
+              {
+                "name": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188287f621fcd88db0cf_label",
+                "query": {
+                  "datasetName": "filter_customers",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "expression": "`label`"
+                    },
+                    {
+                      "name": "label_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_customer",
+                "query": {
+                  "datasetName": "accrued_revenues_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_customer",
+                "query": {
+                  "datasetName": "partner_headcount_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_customer",
+                "query": {
+                  "datasetName": "revenue_per_partner_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_customer",
+                "query": {
+                  "datasetName": "expenses_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_customer",
+                "query": {
+                  "datasetName": "project_margins_calc",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_customer",
+                "query": {
+                  "datasetName": "regional_revenue_trends",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_customer",
+                "query": {
+                  "datasetName": "regional_expense_trends",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_customer",
+                "query": {
+                  "datasetName": "industry_breakdown",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_customer",
+                "query": {
+                  "datasetName": "practice_area_breakdown",
+                  "parameters": [
+                    {
+                      "name": "customer",
+                      "keyword": "customer"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Customer"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "label",
+                    "queryName": "dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188287f621fcd88db0cf_label"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1886a94adf94767f3312_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188a8398db040d968db1_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d188eac72dee114563aa0_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1893a6be199cd0e83450_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d1897b7e071cae1df9774_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189b92dc88d36def390b_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d189fbc4308599150d0d8_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a28d403bf11ff4a4cd_customer"
+                  },
+                  {
+                    "parameterName": "customer",
+                    "queryName": "parameter_dashboards/01f12168e62d171fbb28883a3cfbf2b6/datasets/01f12168e62d18a7b9383d0d4bc9e758_customer"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FAFAFA",
+        "dark": "#1B1F23"
+      },
+      "widgetBackgroundColor": {
+        "light": "#F8FAFC",
+        "dark": "#2A2F35"
+      },
+      "widgetBorderColor": {
+        "light": "#E2E8F0",
+        "dark": "#3C444C"
+      },
+      "fontColor": {
+        "light": "#003366",
+        "dark": "#E4E9EE"
+      },
+      "selectionColor": {
+        "light": "#1D4ED8",
+        "dark": "#5FA8D3"
+      },
+      "visualizationColors": [
+        "#88CDCD",
+        "#97A7B3",
+        "#EFB988",
+        "#AB4057",
+        "#EB9486",
+        "#F3DE8A",
+        "#CAE7B9",
+        "#B58A90",
+        "#C4CCD6",
+        "#7E7F9A",
+        "#730D21",
+        "#CD4631",
+        "#00A972",
+        "#BD2B26",
+        "#7F4A2C",
+        "#DEA47E",
+        "#F8F2DC"
+      ],
+      "widgetHeaderAlignment": "CENTER"
+    },
+    "genieSpace": {
+      "isEnabled": false,
+      "enablementMode": "DISABLED"
+    },
+    "applyModeEnabled": false
+  }
+}

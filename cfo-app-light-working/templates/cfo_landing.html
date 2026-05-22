@@ -1,0 +1,4070 @@
+{% extends "base.html" %}
+
+{% block title %}Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<!-- Modal CSS is already loaded from base.html -->
+
+<style>
+    /* Floating Genie Button - Removed (functionality moved to AI Assistant button) */
+
+    .genie-icon-wrapper {
+        width: 35px;
+        height: 35px;
+        background: linear-gradient(135deg, #dc2626, #ef4444, #f87171);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .genie-icon-wrapper::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
+        animation: iconSheen 3s infinite;
+    }
+
+    @keyframes iconSheen {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .genie-icon {
+        font-size: 20px;
+        z-index: 1;
+    }
+
+    .genie-text {
+        color: #1f2937;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    /* Modal CSS is now in /static/modal.css */
+
+    /* Question Grid Styles - Ensure proper alignment */
+    .questions-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        width: 100%;
+        padding: 0;
+        margin: 20px 0;
+    }
+
+    .chat-question-btn {
+        width: 100% !important;
+        padding: 10px 14px !important;
+        background: #4ade80 !important;
+        background-color: #4ade80 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        color: #ffffff !important;
+        font-size: 13px !important;
+        text-align: center !important;
+        cursor: pointer !important;
+        transition: all 0.3s ease !important;
+        height: 44px !important;  /* Exact height matching AI Assistant button */
+        min-height: 44px !important;
+        max-height: 44px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        line-height: 1.4 !important;
+        font-weight: 500 !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    .chat-question-btn:hover {
+        background: #22c55e !important;
+        background-color: #22c55e !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    /* Ensure chat questions section matches filter width */
+    .chat-questions {
+        width: 100%;
+        max-width: 100%;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    /* Match the genie chat bar width to filter controls */
+    .genie-chat-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;  /* Start from absolute left edge */
+        right: 0;
+        background: linear-gradient(to bottom, #f9fafb, #f3f4f6);  /* Subtle light gray gradient */
+        padding: 35px 0 23px 0;  /* More padding on top to extend the gray area upward */
+        z-index: 999;  /* Below sidebar to let line go through */
+        height: 110px;  /* Taller height to accommodate button alignment */
+        border-top: 1px solid #e5e7eb !important;  /* Single continuous line */
+        box-sizing: border-box;
+    }
+
+    .genie-container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 0 30px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+    }
+
+    /* Ensure filter controls have consistent width */
+    .filter-controls {
+        display: flex;
+        gap: 16px;
+        width: 95%;
+        margin-left: 0;
+        margin-right: auto;
+        padding-right: 3rem;
+        position: relative;
+    }
+
+    .main-container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding-bottom: 140px; /* Space for fixed genie bar */
+    }
+
+    @keyframes pulse {
+        0% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+        100% {
+            opacity: 1;
+        }
+    }
+
+    /* Loading skeleton for live filter compute (/api/insights-live). Shown
+       while SQL + Haiku composition runs (~10-20s). Neutral gray shimmer so
+       the user knows work is happening; once data arrives the .loading class
+       is removed and the real HTML replaces these bars. */
+    @keyframes skeleton-shimmer {
+        0%   { background-position: -400px 0; }
+        100% { background-position: 400px 0; }
+    }
+
+    .insight-item.loading,
+    .priority-item.loading {
+        /* Slightly dimmer container while loading so the bars read as "data
+           coming" rather than "broken tile". */
+        opacity: 0.85;
+    }
+
+    .skeleton-bar {
+        display: block;
+        height: 10px;
+        margin: 6px 0;
+        border-radius: 4px;
+        background: #e5e7eb linear-gradient(90deg,
+            rgba(229, 231, 235, 0.0) 0%,
+            rgba(255, 255, 255, 0.55) 50%,
+            rgba(229, 231, 235, 0.0) 100%) repeat;
+        background-size: 400px 100%;
+        animation: skeleton-shimmer 1.4s ease-in-out infinite;
+    }
+
+    .skeleton-bar-title {
+        width: 40%;
+        height: 12px;
+        margin-bottom: 8px;
+    }
+
+    .skeleton-bar-body {
+        width: 100%;
+    }
+
+    .skeleton-bar-body.short {
+        width: 70%;
+    }
+
+    /* Custom scrollbar styles for SQL query display */
+    .sql-query-display::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    .sql-query-display::-webkit-scrollbar-track {
+        background: #1a252f;
+        border-radius: 5px;
+    }
+
+    .sql-query-display::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #3498db, #2980b9);
+        border-radius: 5px;
+        border: 1px solid #1a252f;
+    }
+
+    .sql-query-display::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(135deg, #5dade2, #3498db);
+    }
+
+    /* Firefox scrollbar styling */
+    .sql-query-display {
+        scrollbar-width: thin;
+        scrollbar-color: #3498db #1a252f;
+    }
+
+    /* Custom details/summary arrow styling */
+    details summary {
+        list-style: none;
+        position: relative;
+        padding-left: 20px;
+    }
+
+    details summary::-webkit-details-marker {
+        display: none;
+    }
+
+    details summary::before {
+        content: '▶';
+        position: absolute;
+        left: 0;
+        color: #3498db;
+        transition: transform 0.2s ease;
+        font-size: 10px;
+    }
+
+    details[open] summary::before {
+        transform: rotate(90deg);
+    }
+
+    /* Consistent table formatting in chat responses */
+    .chat-message.genie table {
+        font-size: 12px !important;
+        margin: 10px 0;
+        border-collapse: collapse;
+        width: auto;
+        max-width: 100%;
+    }
+
+    .chat-message.genie th,
+    .chat-message.genie td {
+        padding: 6px 10px;
+        border: 1px solid #444;
+        text-align: left;
+        font-size: 12px !important;
+    }
+
+    .chat-message.genie th {
+        background-color: #e5e7eb;
+        font-weight: 600;
+        color: #e9ecef;
+    }
+
+    .chat-message.genie td {
+        background-color: #1e2329;
+    }
+
+    /* Ensure consistent header styling with smaller sizes */
+    .chat-message.genie h1 {
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        margin: 12px 0 8px 0 !important;
+        line-height: 1.4 !important;
+    }
+
+    .chat-message.genie h2 {
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        margin: 12px 0 8px 0 !important;
+        line-height: 1.4 !important;
+    }
+
+    .chat-message.genie h3 {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        margin: 10px 0 6px 0 !important;
+        line-height: 1.4 !important;
+    }
+
+    .chat-message.genie h4,
+    .chat-message.genie h5,
+    .chat-message.genie h6 {
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        margin: 8px 0 6px 0 !important;
+        line-height: 1.4 !important;
+    }
+
+    /* Also ensure any bold text inside chat messages is reasonable size */
+    .chat-message.genie strong,
+    .chat-message.genie b {
+        font-size: inherit !important;
+        font-weight: 600 !important;
+    }
+
+    /* Ensure paragraph text is consistent */
+    .chat-message.genie p {
+        font-size: 13px !important;
+        line-height: 1.5 !important;
+        margin: 8px 0 !important;
+    }
+
+    .insight-card {
+        background: #ffffff !important;
+        border-left: 4px solid #10b981;
+        padding: 15px 20px;
+        margin: 10px 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        border-radius: 0 4px 4px 0;
+    }
+
+    .insight-card.warning {
+        border-left-color: #f59e0b;
+    }
+
+    .insight-card.critical {
+        border-left-color: #ef4444;
+    }
+
+    .priority-card {
+        background: #ffffff !important;
+        border-left: 4px solid #10b981;
+        padding: 15px 20px;
+        margin: 10px 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .dashboard-header {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e5e7eb;
+        color: #1f2937 !important;
+        padding: 20px 30px;
+    }
+
+    .dashboard-header h1, .dashboard-header h2 {
+        color: #1f2937 !important;
+    }
+
+    body {
+        background: #fafafa !important;  /* Light gray to match finance and admin pages */
+    }
+
+    .container-fluid {
+        background: #fafafa !important;  /* Light gray to match finance and admin pages */
+    }
+
+    /* Question cards at the bottom */
+    .question-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .question-card:hover {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
+    }
+
+    /* Filters/dropdowns */
+    select, .form-select {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        color: #374151 !important;
+    }
+
+    /* Make all text visible */
+    h1, h2, h3, h4, h5, h6, p, span, div {
+        color: #1f2937;
+    }
+
+    /* Percentage changes */
+    .positive-change {
+        color: #10b981 !important;
+    }
+
+    .negative-change {
+        color: #ef4444 !important;
+    }
+
+    .warning-change {
+        color: #f59e0b !important;
+    }
+
+
+    /* Override dark theme completely */
+    body {
+        background: #ffffff !important;
+        color: #1f2937 !important;
+    }
+
+    .dashboard-header {
+        background: #ffffff !important;
+        color: #1f2937 !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        padding: 20px 30px !important;
+        box-shadow: none !important;
+    }
+
+    .dashboard-header h1, .dashboard-header h2 {
+        color: #1f2937 !important;
+    }
+
+    /* Fix insight cards - white with green left border */
+    .insight-card, .priority-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #10b981 !important;
+        color: #1f2937 !important;
+        margin: 12px 0 !important;
+        padding: 16px 20px !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Remove color variations - all insights green, all priorities orange */
+
+    /* Fix text colors in cards */
+    .insight-card p, .priority-card p,
+    .insight-card span, .priority-card span {
+        color: #374151 !important;
+    }
+
+    .insight-card strong, .priority-card strong {
+        color: #1f2937 !important;
+    }
+
+    /* Percentage styling */
+    .positive {
+        color: #10b981 !important;
+    }
+
+    .negative {
+        color: #ef4444 !important;
+    }
+
+    .neutral {
+        color: #757575 !important;
+    }
+
+    /* Main container */
+    .container-fluid {
+        background: #ffffff !important;
+        padding: 20px 24px !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+
+    /* Navigation bar */
+    .navbar {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    .navbar a {
+        color: #374151 !important;
+    }
+
+    .navbar a:hover {
+        color: #10b981 !important;
+    }
+
+    /* Dropdowns */
+    select, .form-select {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        color: #374151 !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+    }
+
+    /* Question cards */
+    .question-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        color: #1f2937 !important;
+        padding: 20px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    .question-card:hover {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* Section headers */
+    h3, h4 {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Remove all dark backgrounds */
+    .metric-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+    }
+
+    /* Icons in cards */
+    .insight-card .icon,
+    .priority-card .icon {
+        background: transparent !important;
+    }
+
+    /* Override any remaining dark elements */
+    div[style*="background: #ffffff"],
+    div[style*="background: #ffffff"],
+    div[style*="background: #ffffff"] {
+        background: #ffffff !important;
+    }
+
+    /* Ensure all text is visible */
+    * {
+        color: #1f2937;
+    }
+
+    /* Keep functional elements untouched but visible */
+    button, .btn {
+        background: #10b981 !important;
+        color: #1f2937 !important;
+        border: none !important;
+    }
+
+    button:hover, .btn:hover {
+        background: #059669 !important;
+    }
+
+
+    /* Left Navigation Sidebar */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 280px;
+        height: 100vh;
+        background: #f8f9fa;
+        border-right: 1px solid #e5e7eb;
+        padding: 0;
+        z-index: 1000;
+    }
+
+    .sidebar-brand {
+        padding: 24px;
+        border-bottom: 1px solid #e5e7eb;
+        background: #ffffff;
+    }
+
+    .sidebar-brand h3 {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    .sidebar-brand .brand-icon {
+        width: 40px;
+        height: 40px;
+        background: #10b981;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 20px;
+    }
+
+    .sidebar-brand .brand-text {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sidebar-brand .brand-title {
+        font-size: 16px;
+        color: #1f2937;
+        font-weight: 600;
+    }
+
+    .sidebar-brand .brand-subtitle {
+        font-size: 13px;
+        color: #6b7280;
+        font-weight: 400;
+    }
+
+    .sidebar-nav {
+        padding: 16px 0;
+    }
+
+    .nav-item {
+        display: flex;
+        align-items: center;
+        padding: 12px 24px;
+        color: #6b7280;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+        cursor: pointer;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+    }
+
+    .nav-item:hover {
+        background: rgba(16, 185, 129, 0.05);
+        color: #10b981;
+    }
+
+    .nav-item.active {
+        background: #e6f7f1;
+        color: #10b981;
+        position: relative;
+    }
+
+    .nav-item.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: #10b981;
+    }
+
+    .nav-item .nav-icon {
+        margin-right: 12px;
+        font-size: 18px;
+    }
+
+    /* AI Assistant nav item */
+    .nav-item.ai-assistant {
+        margin-top: auto;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 20px;
+    }
+
+    /* Adjust main content for sidebar */
+    body {
+        margin-left: 280px;
+        background: #ffffff !important;
+    }
+
+    .container-fluid {
+        padding: 0 !important;
+        background: #ffffff !important;
+    }
+
+    /* Hide the top navigation bar */
+    .navbar.navbar-expand-lg {
+        display: none !important;
+    }
+
+    /* Fix header styling */
+    .dashboard-header {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        padding: 24px 32px !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+    }
+
+    .dashboard-header h1 {
+        color: #1f2937 !important;
+        font-size: 24px !important;
+        font-weight: 600 !important;
+        margin: 0 !important;
+    }
+
+    .dashboard-header p {
+        color: #6b7280 !important;
+        font-size: 14px !important;
+        margin: 8px 0 0 0 !important;
+    }
+
+    /* Fix all colors to white theme */
+    body, .container-fluid, .dashboard-content {
+        background: #ffffff !important;
+        color: #1f2937 !important;
+    }
+
+    /* Fix insight cards */
+    .insight-card, .priority-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #10b981 !important;
+        padding: 16px 20px !important;
+        margin: 12px 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Removed color variations - all insights should be green */
+
+    /* Fix text colors */
+    h1, h2, h3, h4, h5, h6, p, span, div, label {
+        color: #1f2937 !important;
+    }
+
+    .text-muted {
+        color: #6b7280 !important;
+    }
+
+    /* Fix dropdowns */
+    select, .form-select {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        color: #374151 !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+    }
+
+    /* Fix question cards */
+    .question-card {
+        background: #10b981 !important;
+        color: white !important;
+        border: none !important;
+        padding: 20px !important;
+        border-radius: 8px !important;
+        cursor: pointer !important;
+        transition: all 0.2s !important;
+    }
+
+    .question-card:hover {
+        background: #059669 !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .sidebar {
+            transform: translateX(-100%);
+        }
+        body {
+            margin-left: 0;
+        }
+    }
+
+
+    /* COMPREHENSIVE COLOR FIX - Force all elements to white theme */
+
+    /* Main backgrounds */
+    body, html {
+        background: #fafafa !important;  /* Very light gray background */
+        color: #1f2937 !important;
+    }
+
+    .container-fluid, .dashboard-content {
+        background: #fafafa !important;  /* Very light gray background */
+    }
+
+    /* Fix the insight items (not insight-card!) */
+    .insight-item {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        /* Default left-border color (overridden by .status-* on the inner span). */
+        border-left: 4px solid #10b981 !important;
+        padding: 16px 20px !important;
+        margin: 12px 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    .insight-item:hover {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    /* ─── Clickable tile affordance ──────────────────────────────────────────
+       Insight + action area tiles become clickable when their orchestrator-
+       generated deepdive question_text is non-empty. Pointer cursor + subtle
+       lift-on-hover signal that the tile is interactive. */
+    .clickable-tile {
+        cursor: pointer !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+    }
+    .clickable-tile:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08) !important;
+    }
+    .clickable-tile:focus {
+        outline: 2px solid #ff5f46 !important;
+        outline-offset: 2px !important;
+    }
+
+    /* ─── Status-color overrides ─────────────────────────────────────────────
+       The orchestrator emits status_color (red/yellow/green) per insight + per
+       priority. Insights wrap their HTML body in <span class="status-{color}">,
+       priorities apply class="status-{color}" on the .priority-item itself.
+       These rules color-code the LEFT BORDER consistently across both. */
+    .insight-item:has(> .insight-text > .status-red),
+    .insight-item:has(.status-red),
+    .priority-item.status-red {
+        border-left-color: #ef4444 !important;
+    }
+    .insight-item:has(> .insight-text > .status-yellow),
+    .insight-item:has(.status-yellow),
+    .priority-item.status-yellow {
+        border-left-color: #f59e0b !important;
+    }
+    .insight-item:has(> .insight-text > .status-green),
+    .insight-item:has(.status-green),
+    .priority-item.status-green {
+        border-left-color: #10b981 !important;
+    }
+
+    /* Status-color the headline + value + comparison text so the bad-news magnitude
+       is visually prominent (not just a thin left border that's easy to miss).
+       Selectors must be MORE SPECIFIC than `.priority-item strong { color: ... }`
+       at line 835 (which forces gray with !important on every strong inside tiles).
+       Specificity: `.priority-item strong.status-text-red` (0,2,2) beats
+       `.priority-item strong` (0,1,1). */
+    .insight-item strong.status-text-red,
+    .priority-item strong.status-text-red,
+    .insight-item span.status-text-red,
+    .priority-item span.status-text-red,
+    .status-text-red    { color: #ef4444 !important; }
+
+    .insight-item strong.status-text-yellow,
+    .priority-item strong.status-text-yellow,
+    .insight-item span.status-text-yellow,
+    .priority-item span.status-text-yellow,
+    .status-text-yellow { color: #b45309 !important; }
+
+    .insight-item strong.status-text-green,
+    .priority-item strong.status-text-green,
+    .insight-item span.status-text-green,
+    .priority-item span.status-text-green,
+    .status-text-green  { color: #10b981 !important; }
+
+    /* Priority items */
+    .priority-item {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #f59e0b !important;
+        padding: 16px 20px !important;
+        margin: 12px 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Metric cards */
+    .metric-card {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        padding: 20px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Question cards */
+    .question-card {
+        background: #10b981 !important;
+        color: white !important;
+        border: none !important;
+        padding: 20px !important;
+        border-radius: 8px !important;
+        cursor: pointer !important;
+        transition: all 0.2s !important;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2) !important;
+    }
+
+    .question-card:hover {
+        background: #059669 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3) !important;
+    }
+
+    .question-card h3 {
+        color: white !important;
+        margin: 0 !important;
+        font-size: 16px !important;
+    }
+
+    /* Fix ALL text colors */
+    .insight-text, .priority-text {
+        color: #374151 !important;
+    }
+
+    .insight-item strong, .priority-item strong {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Fix icons */
+    .insight-icon {
+        background: transparent !important;
+        font-size: 24px !important;
+        width: 40px !important;
+        height: 40px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    .revenue-icon { color: #10b981 !important; }
+    .expense-icon { color: #ef4444 !important; }
+    .invoice-icon { color: #3b82f6 !important; }
+    .vendor-icon { color: #8b5cf6 !important; }
+    .margin-icon { color: #f59e0b !important; }
+
+    /* Headers */
+    .dashboard-header {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        padding: 24px 32px !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+    }
+
+    .dashboard-header h1 {
+        color: #1f2937 !important;
+        font-size: 24px !important;
+        font-weight: 600 !important;
+        margin: 0 !important;
+    }
+
+    .dashboard-header p {
+        color: #6b7280 !important;
+        font-size: 14px !important;
+        margin: 8px 0 0 0 !important;
+    }
+
+    /* Section titles */
+    .section-title {
+        color: #1f2937 !important;
+        font-size: 18px !important;
+        font-weight: 600 !important;
+        margin: 0 0 16px 0 !important;
+    }
+
+    /* Dropdowns */
+    select, .form-select, .form-control {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        color: #374151 !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+    }
+
+    select:focus, .form-select:focus, .form-control:focus {
+        border-color: #10b981 !important;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1) !important;
+        outline: none !important;
+    }
+
+    /* Remove any dark backgrounds */
+    div[style*="background: #ffffff"],
+    div[style*="background: #ffffff"],
+    div[style*="background: #ffffff"],
+    div[style*="background: rgba(255, 255, 255"] {
+        background: #ffffff !important;
+    }
+
+    /* Ensure all text is readable */
+    h1, h2, h3, h4, h5, h6, p, span, div, label, td, th {
+        color: #1f2937 !important;
+    }
+
+    .text-muted {
+        color: #6b7280 !important;
+    }
+
+    /* Percentage values */
+    .positive, .positive-change {
+        color: #10b981 !important;
+        font-weight: 500 !important;
+    }
+
+    .negative, .negative-change {
+        color: #ef4444 !important;
+        font-weight: 500 !important;
+    }
+
+    .warning, .warning-change {
+        color: #f59e0b !important;
+        font-weight: 500 !important;
+    }
+
+    /* Chat modal should stay styled */
+    .chat-modal .modal-content {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+        color: white !important;
+    }
+
+    .chat-modal .modal-header,
+    .chat-modal .modal-title {
+        color: white !important;
+    }
+
+    /* Sidebar adjustments */
+    .sidebar {
+        background: #f8f9fa !important;
+    }
+
+    .nav-item {
+        color: #6b7280 !important;
+    }
+
+    .nav-item:hover {
+        background: rgba(16, 185, 129, 0.05) !important;
+        color: #10b981 !important;
+    }
+
+    /* Export button styles for Landing page */
+    .export-btn {
+        padding: 10px 16px;
+        background: linear-gradient(135deg, #10b981, #34d399);
+        color: #1f2937 !important;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 500;
+        display: inline-block !important;
+        margin-left: 10px;
+    }
+
+    .export-btn:hover {
+        background: linear-gradient(135deg, #059669, #10b981);
+    }
+
+    .nav-item.active {
+        background: #e6f7f1 !important;
+        color: #10b981 !important;
+    }
+
+
+    /* FINAL UI POLISH */
+
+    /* Main content area with proper spacing from sidebar */
+    .container-fluid {
+        margin-left: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+    }
+
+    .dashboard-content {
+        padding: 24px 32px !important;
+        background: #ffffff !important;
+    }
+
+    /* Insights section styling */
+    .insights-section {
+        margin-bottom: 32px !important;
+        background: #ffffff !important;
+        padding: 0 !important;
+    }
+
+    .insights-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+        padding: 0 !important;
+        padding-right: 16px !important;
+        margin: 0 !important;
+        width: calc(100% - 16px) !important;
+    }
+
+    /* Priority section styling */
+    .priority-section {
+        margin-bottom: 32px !important;
+        background: #ffffff !important;
+        padding: 0 !important;
+    }
+
+    .priority-list {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+        padding: 0 !important;
+        padding-right: 16px !important;
+        margin: 0 !important;
+        width: calc(100% - 16px) !important;
+    }
+
+    /* Override insight-item with exact reference styling */
+    .insight-item {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #10b981 !important;
+        padding: 14px 20px !important;
+        margin: 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 16px !important;
+        min-height: 60px !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .insight-item:hover {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        transform: translateX(2px) !important;
+    }
+
+    /* All insight items should have green borders */
+    .insight-item {
+        border-left-color: #10b981 !important;
+    }
+
+    /* Fix insight text */
+    .insight-text {
+        color: #374151 !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
+        flex: 1 !important;
+    }
+
+    .insight-text strong {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Priority items styling */
+    .priority-item {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #ff5f46 !important;
+        padding: 14px 20px !important;
+        margin: 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 16px !important;
+        min-height: 60px !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .priority-item:hover {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        transform: translateX(2px) !important;
+    }
+
+    .priority-text {
+        color: #374151 !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
+        flex: 1 !important;
+    }
+
+    .priority-text strong {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Icons with better styling */
+    .insight-icon {
+        font-size: 20px !important;
+        width: 32px !important;
+        height: 32px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* Priority Tasks styling */
+    .priority-tasks {
+        margin-bottom: 32px !important;
+    }
+
+    .priority-item {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-left: 4px solid #f59e0b !important;
+        padding: 14px 20px !important;
+        margin: 0 0 12px 0 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Common Questions section */
+    .questions-grid {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important;
+        gap: 16px !important;
+        margin-top: 20px !important;
+    }
+
+    .question-card {
+        background: #10b981 !important;
+        color: white !important;
+        border: none !important;
+        padding: 18px !important;
+        border-radius: 8px !important;
+        cursor: pointer !important;
+        transition: all 0.2s !important;
+        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2) !important;
+        display: flex !important;
+        align-items: center !important;
+        min-height: 80px !important;
+    }
+
+    .question-card:hover {
+        background: #059669 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3) !important;
+    }
+
+    .question-card h3 {
+        color: white !important;
+        margin: 0 !important;
+        font-size: 15px !important;
+        font-weight: 500 !important;
+        line-height: 1.4 !important;
+    }
+
+    /* Section headers */
+    .section-title {
+        color: #1f2937 !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        margin: 0 0 20px 0 !important;
+        padding-bottom: 8px !important;
+        border-bottom: 2px solid #f3f4f6 !important;
+    }
+
+    /* Ensure proper spacing */
+    .row {
+        margin: 0 !important;
+    }
+
+    .col-md-8, .col-md-4 {
+        padding: 0 16px !important;
+    }
+
+    /* Remove any remaining dark elements */
+    *[style*="background: #1e2936"],
+    *[style*="background: #0b2026"],
+    *[style*="background-color: #1e2936"],
+    *[style*="background-color: #0b2026"] {
+        background: #ffffff !important;
+    }
+
+    /* CRITICAL OVERRIDES - Force correct layout and colors */
+    .main-container {
+        padding: 0 !important;
+        max-width: 100% !important;
+    }
+
+    .page-header-section {
+        padding: 20px 24px !important;
+        margin: 0 !important;
+    }
+
+    .insights-section,
+    .priority-section {
+        padding: 0 24px 20px 24px !important;
+        margin: 0 !important;
+    }
+
+    .chat-questions {
+        padding: 0 24px 40px 24px !important;
+        margin: 0 !important;
+    }
+
+    /* Force green buttons for questions */
+    button.chat-question-btn {
+        background: #10b981 !important;
+        background-color: #10b981 !important;
+        color: #ffffff !important;
+    }
+
+    button.chat-question-btn:hover {
+        background: #059669 !important;
+        background-color: #059669 !important;
+    }
+
+    /* Ensure borders are visible */
+    .insight-item {
+        border-left-color: #10b981 !important;
+        border-left-width: 4px !important;
+        border-left-style: solid !important;
+    }
+
+    .priority-item {
+        border-left-color: #ff5f46 !important;
+        border-left-width: 4px !important;
+        border-left-style: solid !important;
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<script>
+// Define clearAllFilters immediately so it's available globally.
+//
+// Reset all 5 filter dropdowns to "All" and trigger ONE applyFilters() at the
+// end. The previous version dispatched a 'change' event per dropdown, which
+// fired the inline onchange handler → applyFilters() for each — five network
+// roundtrips in rapid succession (the cause of the ~6s "clear filters" lag).
+// Now we reset values silently, sync the custom-dropdown display layer, and
+// call applyFilters exactly once.
+window.clearAllFilters = function() {
+    console.log('[CLEAR] clearAllFilters function called!');
+
+    const filters = ['regionFilter', 'locationFilter', 'practiceAreaFilter', 'industryFilter', 'customerFilter'];
+
+    // Reset each <select> SILENTLY — no change event, no per-filter applyFilters().
+    filters.forEach(filterId => {
+        const select = document.getElementById(filterId);
+        if (select) {
+            select.selectedIndex = 0;
+            select.value = (select.options[0] && select.options[0].value) || 'All';
+        }
+    });
+
+    // Sync the custom-dropdown display layer so the visible text matches the
+    // underlying <select>.value (otherwise the dropdown still shows the old
+    // selected option even after value reset). Pass {silent: true} so each
+    // call does NOT dispatch its own change event — otherwise we'd fire
+    // applyFilters() once per dropdown (5x firmwide round-trips, ~5s lag).
+    if (window.customDropdowns) {
+        Object.keys(window.customDropdowns).forEach(key => {
+            if (window.customDropdowns[key] && window.customDropdowns[key].selectOption) {
+                window.customDropdowns[key].selectOption(0, { silent: true });
+            }
+        });
+    }
+    document.querySelectorAll('.custom-dropdown-text').forEach(text => {
+        text.textContent = 'All';
+    });
+
+    // One applyFilters() call at the end — single network roundtrip for the
+    // firmwide payload, not five.
+    if (typeof window.applyFilters === 'function') {
+        console.log('[CLEAR] Calling applyFilters (single pass)');
+        window.applyFilters();
+    }
+};
+
+// Function to save filter state
+const saveFilterState = function() {
+    const filters = {};
+
+    const regionFilter = document.getElementById('regionFilter');
+    const locationFilter = document.getElementById('locationFilter');
+    const practiceAreaFilter = document.getElementById('practiceAreaFilter');
+    const industryFilter = document.getElementById('industryFilter');
+    const customerFilter = document.getElementById('customerFilter');
+
+    if (regionFilter) filters.region = regionFilter.value;
+    if (locationFilter) filters.location = locationFilter.value;
+    if (practiceAreaFilter) filters.practiceArea = practiceAreaFilter.value;
+    if (industryFilter) filters.industry = industryFilter.value;
+    if (customerFilter) filters.customer = customerFilter.value;
+
+    sessionStorage.setItem('savedFilters', JSON.stringify(filters));
+    console.log('[FILTER] Saved filter state:', filters);
+    return filters;
+};
+
+// Function to restore filter state
+const restoreFilterState = function() {
+    const savedFiltersStr = sessionStorage.getItem('savedFilters');
+    if (!savedFiltersStr) {
+        console.log('[FILTER] No saved filter state');
+        return;
+    }
+
+    const savedFilters = JSON.parse(savedFiltersStr);
+    console.log('[FILTER] Restoring filter state:', savedFilters);
+
+    if (savedFilters.region) {
+        const regionFilter = document.getElementById('regionFilter');
+        if (regionFilter) regionFilter.value = savedFilters.region;
+    }
+    if (savedFilters.location) {
+        const locationFilter = document.getElementById('locationFilter');
+        if (locationFilter) locationFilter.value = savedFilters.location;
+    }
+    if (savedFilters.practiceArea) {
+        const practiceAreaFilter = document.getElementById('practiceAreaFilter');
+        if (practiceAreaFilter) practiceAreaFilter.value = savedFilters.practiceArea;
+    }
+    if (savedFilters.industry) {
+        const industryFilter = document.getElementById('industryFilter');
+        if (industryFilter) industryFilter.value = savedFilters.industry;
+    }
+    if (savedFilters.customer) {
+        const customerFilter = document.getElementById('customerFilter');
+        if (customerFilter) customerFilter.value = savedFilters.customer;
+    }
+};
+
+// -----------------------------------------------------------------------
+// Request-id sequencer for dashboard updates. Issue #2 (race condition):
+// if a user fires a slow filter request (e.g. Location=Bangkok → 15-20s
+// /api/insights-live) and then clears filters BEFORE that returns, the
+// later "All" response would render first, then the older Bangkok response
+// would clobber it. We tag every dashboard request with a monotonically
+// increasing id; any handler that finds `myRequestId !== _liveRequestSeq`
+// bails out before touching the DOM. Same counter is shared by the LIVE
+// path (updateDashboard) AND the cached /api/get-insights path inside
+// customSelectUser so a cached read fired after a live read always wins.
+// -----------------------------------------------------------------------
+let _liveRequestSeq = 0;
+window._liveRequestSeq = 0; // exposed for debugging
+
+// Store our custom selectUser function
+const customSelectUser = function(userId, userName, userRole) {
+    console.log('[PERSONA] Custom selectUser called:', userId, userName, userRole);
+
+    // Save current filter state before switching personas
+    saveFilterState();
+
+    // Update the display immediately
+    document.getElementById('userName').textContent = userName;
+    document.getElementById('userRole').textContent = userRole;
+
+    // Store in sessionStorage
+    sessionStorage.setItem('selectedPersona', userId);
+    sessionStorage.setItem('selectedName', userName);
+    sessionStorage.setItem('selectedRole', userRole);
+
+    // Also persist to a cookie so the SERVER renders the right persona's data
+    // on the next page load (esp. browser refresh). Without this the server
+    // always defaults to 'admin' and stamps admin content into every
+    // .user-insights container — that's the bug. 30-day expiry, path=/ so it
+    // applies site-wide. SameSite=Lax is the safe default for same-site reads.
+    document.cookie = `selectedPersona=${encodeURIComponent(userId)}; path=/; max-age=${60*60*24*30}; SameSite=Lax`;
+
+    // Hide dropdown
+    const userDropdown = document.getElementById('userDropdown');
+    if (userDropdown) {
+        userDropdown.classList.remove('show');
+    }
+
+    // Switch containers immediately for visual feedback
+    document.querySelectorAll('.user-insights').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.user-questions').forEach(c => c.classList.remove('active'));
+
+    const insightsContainer = document.querySelector(`.user-insights[data-user="${userId}"]`);
+    const questionsContainer = document.querySelector(`.user-questions[data-user="${userId}"]`);
+    if (insightsContainer) insightsContainer.classList.add('active');
+    if (questionsContainer) questionsContainer.classList.add('active');
+
+    // Map persona
+    let persona = userId;
+    if (userId === 'sarah') persona = 'finance';
+    else if (userId === 'priya') persona = 'admin';
+    else if (userId === 'michael') persona = 'hr';
+
+    // Restore saved filters if they exist
+    const savedFiltersStr = sessionStorage.getItem('savedFilters');
+    if (savedFiltersStr) {
+        console.log('[FILTER] Restoring filters in selectUser');
+        restoreFilterState();
+    }
+
+    // Get current filters (includes restored filters)
+    const filters = getCurrentFilters();
+
+    // If filters are active (any non-"All" value), delegate to updateDashboard
+    // which uses the LIVE compute path (/api/insights-live) with a proper
+    // skeleton-shimmer loading state. This avoids hitting the stale-cached
+    // /api/get-insights path for filter-scoped reads.
+    if (typeof window.hasActiveFilters === 'function' && window.hasActiveFilters(filters)
+        && typeof window.updateDashboard === 'function') {
+        console.log('[PERSONA] Active filters detected on persona switch — delegating to updateDashboard (live path)');
+        return window.updateDashboard(persona, filters);
+    }
+
+    // Show loading state immediately (firmwide / no-filter path)
+    const activeInsights = document.querySelector('.user-insights.active');
+    if (activeInsights) {
+        const insightItems = activeInsights.querySelectorAll('.insight-item');
+        insightItems.forEach(item => {
+            const textElem = item.querySelector('.insight-text');
+            if (textElem) {
+                textElem.innerHTML = `
+                    <span style="color: #ff9800;">Generating Key Insight...</span>
+                    <span style="color: #6b7280; margin-left: 8px;">⏳ Processing data</span>
+                `;
+            }
+        });
+    }
+
+    // Show loading for priorities too
+    const priorityList = document.getElementById('priorityList');
+    if (priorityList) {
+        priorityList.innerHTML = '';
+        for (let i = 0; i < 2; i++) {
+            const loadingItem = document.createElement('div');
+            loadingItem.className = 'priority-item';
+            loadingItem.innerHTML = `
+                <div class="priority-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-bolt"></i></div>
+                <div class="priority-text">
+                    <span style="color: #ff9800;">Generating Priority Action...</span>
+                    <span style="color: #6b7280; margin-left: 8px;">⏳ Processing data</span>
+                </div>
+            `;
+            priorityList.appendChild(loadingItem);
+        }
+    }
+
+    // Directly call the API endpoints
+    console.log('[PERSONA] Fetching data for persona:', persona);
+
+    // Tag this request with a monotonically increasing id. If a newer request
+    // (live or cached) supersedes it before the fetch returns, we drop the
+    // response on the floor instead of overwriting fresher content.
+    const myRequestId = ++_liveRequestSeq;
+    window._liveRequestSeq = _liveRequestSeq;
+    console.log('[PERSONA] dispatched request id', myRequestId, 'for persona', persona);
+
+    // Fetch insights with filters
+    const insightsParams = new URLSearchParams({ persona, ...filters });
+    const insightsUrl = `/api/get-insights?${insightsParams}`;
+    console.log('[PERSONA] API request URL:', insightsUrl);
+    fetch(insightsUrl)
+        .then(response => response.json())
+        .then(data => {
+            console.log('[PERSONA] Insights received (reqId=' + myRequestId + '):', data);
+            if (myRequestId !== _liveRequestSeq) {
+                console.log('[PERSONA] dropping stale cached response (reqId=' + myRequestId + ', latest=' + _liveRequestSeq + ')');
+                return;
+            }
+            if (data.status === 'success' && data.insights) {
+                // Patch the active container (not just any container) — the
+                // class swap was already done synchronously above so the right
+                // persona's container has .active.
+                const activeContainer = document.querySelector('.user-insights.active');
+                if (activeContainer) {
+                    const insightItems = activeContainer.querySelectorAll('.insight-item');
+                    data.insights.forEach((insightText, index) => {
+                        if (insightItems[index]) {
+                            const textDiv = insightItems[index].querySelector('.insight-text');
+                            if (textDiv) {
+                                textDiv.innerHTML = insightText;
+                                console.log('[PERSONA] patched insight-text', index, 'for persona', persona);
+                            }
+                        }
+                    });
+                }
+            }
+        })
+        .catch(error => {
+            console.error('[PERSONA] Error fetching insights:', error);
+        });
+
+    // Fetch priorities with filters
+    fetch('/api/generate-priorities', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({persona: persona, filters: filters, insights: []})
+    })
+        .then(response => response.json())
+        .then(data => {
+            console.log('[PERSONA] Priorities received:', data);
+            if (data.priorities && data.priorities.length > 0) {
+                const priorityList = document.getElementById('priorityList');
+                if (priorityList) {
+                    priorityList.innerHTML = '';
+                    data.priorities.forEach(priority => {
+                        const item = document.createElement('div');
+                        item.className = 'priority-item';
+                        item.innerHTML = `
+                            <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                            <div class="priority-text">
+                                <strong class="status-text-${(priority.status_color || 'yellow').toLowerCase()}">${priority.title}:</strong> ${priority.description}
+                            </div>
+                        `;
+                        priorityList.appendChild(item);
+                    });
+                }
+            }
+        })
+        .catch(error => {
+            console.error('[PERSONA] Error fetching priorities:', error);
+        });
+};
+
+// Override window.selectUser immediately after defining customSelectUser
+window.selectUser = customSelectUser;
+
+// Also override it repeatedly to ensure it sticks (base.html might override later)
+setTimeout(() => {
+    console.log('[PERSONA] Re-overriding selectUser at 0ms');
+    window.selectUser = customSelectUser;
+}, 0);
+setTimeout(() => {
+    console.log('[PERSONA] Re-overriding selectUser at 100ms');
+    window.selectUser = customSelectUser;
+}, 100);
+setTimeout(() => {
+    console.log('[PERSONA] Re-overriding selectUser at 500ms');
+    window.selectUser = customSelectUser;
+}, 500);
+
+// Helper function to get current filters from the dropdowns
+window.getCurrentFilters = function() {
+    const filters = {};
+
+    const regionFilter = document.getElementById('regionFilter');
+    const locationFilter = document.getElementById('locationFilter');
+    const practiceAreaFilter = document.getElementById('practiceAreaFilter');
+    const industryFilter = document.getElementById('industryFilter');
+    const customerFilter = document.getElementById('customerFilter');
+
+    if (regionFilter && regionFilter.value !== 'All') {
+        filters.region = regionFilter.value;
+    }
+    if (locationFilter && locationFilter.value !== 'All') {
+        filters.location = locationFilter.value;
+    }
+    if (practiceAreaFilter && practiceAreaFilter.value !== 'All') {
+        filters.practice_area = practiceAreaFilter.value;
+    }
+    if (industryFilter && industryFilter.value !== 'All') {
+        filters.industry = industryFilter.value;
+    }
+    if (customerFilter && customerFilter.value !== 'All') {
+        filters.customer = customerFilter.value;
+    }
+
+    return filters;
+}
+
+// Helper: are any filters set to a non-default value?
+window.hasActiveFilters = function(filters) {
+    if (!filters || typeof filters !== 'object') return false;
+    for (const k of Object.keys(filters)) {
+        const v = filters[k];
+        if (v && String(v).trim() && String(v).toLowerCase() !== 'all') return true;
+    }
+    return false;
+};
+
+// UNIFIED FUNCTION: Updates dashboard with new persona/filters via AJAX - NO PAGE RELOAD!
+window.updateDashboard = async function(persona, filters) {
+    console.log('[DASHBOARD] Updating with persona:', persona, 'filters:', filters);
+
+    // Issue #2 fix — tag this dashboard call with a monotonically increasing
+    // id. Both the LIVE filter path (/api/insights-live, 10-20s) and the
+    // cached firmwide path (/api/get-insights, instant) check `myRequestId
+    // === _liveRequestSeq` before mutating the DOM. A later request always
+    // wins; a slow earlier response is dropped on the floor.
+    const myRequestId = ++_liveRequestSeq;
+    window._liveRequestSeq = _liveRequestSeq;
+    console.log('[DASHBOARD] dispatched request id', myRequestId, 'persona=', persona, 'filters=', filters);
+
+    // Map persona for user ID
+    let userId = persona;
+    if (persona === 'finance') userId = 'sarah';
+    else if (persona === 'admin') userId = 'priya';
+    else if (persona === 'hr') userId = 'michael';
+
+    // First make sure the right insights container is active
+    document.querySelectorAll('.user-insights').forEach(container => {
+        container.classList.remove('active');
+    });
+    const activeContainer = document.querySelector(`.user-insights[data-user="${userId}"]`);
+    if (activeContainer) {
+        activeContainer.classList.add('active');
+    }
+
+    // Show loading states for both insights and priorities
+    showDashboardLoading();
+
+    // -----------------------------------------------------------------------
+    // LIVE FILTER PATH: when any filter axis is set to a non-"All" value, hit
+    // /api/insights-live which runs a fresh SQL + Haiku compose for the scoped
+    // slice. Latency ~10-20s, no caching. When all filters are at default
+    // ("All"), fall through to the existing cached-firmwide read path
+    // (/api/get-insights), which is instant.
+    // -----------------------------------------------------------------------
+    if (window.hasActiveFilters(filters)) {
+        console.log('[DASHBOARD] Active filters detected — using LIVE compute path');
+        showLiveComputeSkeleton(userId);
+        try {
+            const liveResp = await fetch('/api/insights-live', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({persona: persona, filters: filters}),
+            });
+            const liveData = await liveResp.json();
+            console.log('[DASHBOARD] insights-live response (reqId=' + myRequestId + '):', liveData);
+            // Issue #2 fix — if a newer dashboard call superseded us while we
+            // were waiting, drop this response. Otherwise a slow Bangkok
+            // response will clobber a freshly-rendered All view.
+            if (myRequestId !== _liveRequestSeq) {
+                console.log('[DASHBOARD] dropping stale live response (reqId=' + myRequestId + ', latest=' + _liveRequestSeq + ')');
+                return;
+            }
+            if (!liveResp.ok || liveData.status !== 'success') {
+                throw new Error(liveData.error || `HTTP ${liveResp.status}`);
+            }
+            // Render insights
+            const insightItems = activeContainer ? activeContainer.querySelectorAll('.insight-item') : [];
+            (liveData.insights || []).forEach((html, idx) => {
+                if (insightItems[idx]) {
+                    const textDiv = insightItems[idx].querySelector('.insight-text');
+                    if (textDiv) {
+                        // Clear loading state + restore real content
+                        insightItems[idx].classList.remove('loading');
+                        textDiv.innerHTML = html;
+                    }
+                }
+            });
+            // Render action_areas into the priorityList
+            const priorityList = document.getElementById('priorityList');
+            if (priorityList) {
+                priorityList.innerHTML = '';
+                (liveData.action_areas || []).forEach(p => {
+                    const item = document.createElement('div');
+                    item.className = 'priority-item status-' + (p.status_color || 'yellow').toLowerCase();
+                    item.innerHTML = `
+                        <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                        <div class="priority-text">
+                            <strong class="status-text-${(p.status_color || 'yellow').toLowerCase()}">${p.title}:</strong> ${p.description}
+                        </div>
+                    `;
+                    priorityList.appendChild(item);
+                });
+            }
+            return; // skip the firmwide cached path below
+        } catch (err) {
+            console.error('[DASHBOARD] insights-live failed:', err);
+            // Show an error tile instead of leaving the skeleton up
+            const insightItems = activeContainer ? activeContainer.querySelectorAll('.insight-item') : [];
+            insightItems.forEach(item => {
+                item.classList.remove('loading');
+                const textDiv = item.querySelector('.insight-text');
+                if (textDiv) {
+                    textDiv.innerHTML = "<span style='color: #b91c1c;'>Couldn't load insights for these filters.</span>";
+                }
+            });
+            const priorityList = document.getElementById('priorityList');
+            if (priorityList) {
+                priorityList.innerHTML = `
+                    <div class="priority-item">
+                        <div class="priority-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div class="priority-text">
+                            <strong>Couldn't load action areas for these filters.</strong>
+                        </div>
+                    </div>
+                `;
+            }
+            return;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // FIRMWIDE / NO-FILTER PATH: original cached behavior, unchanged.
+    // -----------------------------------------------------------------------
+    try {
+        // If updateInsights is not yet available, fetch directly here
+        if (typeof window.updateInsights === 'function') {
+            await window.updateInsights(persona, filters);
+        } else {
+            console.log('[DASHBOARD] updateInsights not available, fetching directly');
+
+            // Fetch insights directly
+            const params = new URLSearchParams({ persona, ...filters });
+            const url = `/api/get-insights?${params}`;
+            console.log('[DASHBOARD] Fetching insights from:', url);
+
+            const response = await fetch(url);
+            const data = await response.json();
+            console.log('[DASHBOARD] Response received (reqId=' + myRequestId + '):', data);
+
+            // Issue #2 fix — staleness guard on the firmwide cached fallback path.
+            if (myRequestId !== _liveRequestSeq) {
+                console.log('[DASHBOARD] dropping stale firmwide response (reqId=' + myRequestId + ', latest=' + _liveRequestSeq + ')');
+                return;
+            }
+
+            if (data.status === 'success' || data.status === 'fallback') {
+                // Update insights display directly
+                if (typeof window.updateInsightsDisplay === 'function') {
+                    window.updateInsightsDisplay(persona, data.insights);
+                } else {
+                    // Simple fallback update
+                    const insightItems = activeContainer.querySelectorAll('.insight-item');
+                    data.insights.forEach((insightText, index) => {
+                        if (insightItems[index]) {
+                            const textDiv = insightItems[index].querySelector('.insight-text');
+                            if (textDiv) {
+                                textDiv.innerHTML = insightText;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        // Filter restoration is now done in selectUser before fetching data
+
+        // Update priorities using the existing function
+        if (typeof window.updatePriorityRecommendations === 'function') {
+            await window.updatePriorityRecommendations(userId, []);
+        } else {
+            console.log('[DASHBOARD] updatePriorityRecommendations not available, fetching directly');
+
+            // Fetch priorities directly
+            const response = await fetch('/api/generate-priorities', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    persona: persona,
+                    filters: filters,
+                    insights: []
+                })
+            });
+
+            const data = await response.json();
+            console.log('[DASHBOARD] Priorities response:', data);
+
+            if (data.priorities && data.priorities.length > 0) {
+                const priorityList = document.getElementById('priorityList');
+                if (priorityList) {
+                    priorityList.innerHTML = '';
+                    data.priorities.forEach(priority => {
+                        const item = document.createElement('div');
+                        item.className = 'priority-item';
+                        item.innerHTML = `
+                            <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                            <div class="priority-text">
+                                <strong class="status-text-${(priority.status_color || 'yellow').toLowerCase()}">${priority.title}:</strong> ${priority.description}
+                            </div>
+                        `;
+                        priorityList.appendChild(item);
+                    });
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('[DASHBOARD] Error updating:', error);
+        hideDashboardLoading();
+    }
+}
+
+// Show loading state for insights and priorities
+window.showDashboardLoading = function() {
+    // Show loading for insights - only for active container
+    const activeInsights = document.querySelector('.user-insights.active');
+    if (activeInsights) {
+        const insightItems = activeInsights.querySelectorAll('.insight-item');
+        insightItems.forEach(item => {
+            const textElem = item.querySelector('.insight-text');
+            if (textElem) {
+                textElem.innerHTML = `
+                    <span style="color: #ff9800;">Generating Key Insight...</span>
+                    <span style="color: #6b7280; margin-left: 8px;">⏳ Processing data</span>
+                `;
+            }
+        });
+    }
+
+    // Show loading for priorities - individual boxes like insights
+    const priorityList = document.getElementById('priorityList');
+    if (priorityList) {
+        priorityList.innerHTML = '';
+        // Create 2 loading priority boxes
+        for (let i = 0; i < 2; i++) {
+            const loadingItem = document.createElement('div');
+            loadingItem.className = 'priority-item';
+            loadingItem.innerHTML = `
+                <div class="priority-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-bolt"></i></div>
+                <div class="priority-text">
+                    <span style="color: #ff9800;">Generating Priority Action...</span>
+                    <span style="color: #6b7280; margin-left: 8px;">⏳ Processing data</span>
+                </div>
+            `;
+            priorityList.appendChild(loadingItem);
+        }
+    }
+}
+
+// Hide loading state
+window.hideDashboardLoading = function() {
+    // Loading will be replaced by actual data
+}
+
+// Live-compute skeleton: shown while the /api/insights-live endpoint runs
+// (~10-20s round-trip). Each tile becomes a 3-bar skeleton with a shimmer
+// animation so the user knows compute is happening, not the page is broken.
+// Wider/looser than showDashboardLoading() — the latter is a per-persona text
+// placeholder, this one is the SQL+Haiku composition wait.
+window.showLiveComputeSkeleton = function(userId) {
+    const insightsContainer = document.querySelector(`.user-insights[data-user="${userId}"]`);
+    if (insightsContainer) {
+        const insightItems = insightsContainer.querySelectorAll('.insight-item');
+        insightItems.forEach(item => {
+            item.classList.add('loading');
+            const textDiv = item.querySelector('.insight-text');
+            if (textDiv) {
+                textDiv.innerHTML = `
+                    <div class="skeleton-bar skeleton-bar-title"></div>
+                    <div class="skeleton-bar skeleton-bar-body"></div>
+                    <div class="skeleton-bar skeleton-bar-body short"></div>
+                `;
+            }
+        });
+    }
+    const priorityList = document.getElementById('priorityList');
+    if (priorityList) {
+        priorityList.innerHTML = '';
+        for (let i = 0; i < 3; i++) {
+            const item = document.createElement('div');
+            item.className = 'priority-item loading';
+            item.innerHTML = `
+                <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                <div class="priority-text">
+                    <div class="skeleton-bar skeleton-bar-title"></div>
+                    <div class="skeleton-bar skeleton-bar-body short"></div>
+                </div>
+            `;
+            priorityList.appendChild(item);
+        }
+    }
+};
+
+// Note: updateInsightsDisplay is defined later in the script (line ~2650) with full functionality
+// Note: updatePriorityRecommendations is defined later in the script with full functionality
+
+// (Formerly enforced single-axis filtering by resetting all other dropdowns
+// when one changed — that was correct when Key Insights were pre-cached as
+// single-axis rows in gold_persona_insights. Now that /api/insights-live
+// supports arbitrary multi-axis compose + write-through caches the result to
+// the UC table, multi-axis combos are first-class. This function is kept as
+// a no-op for compatibility with existing inline onchange handlers; new code
+// should not call it.)
+window.enforceSingleAxis = function(_changedDropdownId) { /* no-op */ };
+
+// Define applyFilters - NOW USES AJAX, NO PAGE RELOAD!
+window.applyFilters = function(skipSave = false) {
+    console.log('[FILTER] applyFilters() called - AJAX update');
+
+    // Save filter state whenever filters are applied (unless we're restoring)
+    if (!skipSave) {
+        saveFilterState();
+    }
+
+    // Get current filters
+    const filters = getCurrentFilters();
+    console.log('[FILTER] Current filters:', filters);
+
+    // Get current persona from sessionStorage
+    const currentUserId = sessionStorage.getItem('selectedPersona') || 'priya';
+    let persona = currentUserId;
+    if (currentUserId === 'sarah') persona = 'finance';
+    else if (currentUserId === 'priya') persona = 'admin';
+    else if (currentUserId === 'michael') persona = 'hr';
+
+    // Update dashboard via AJAX - NO PAGE RELOAD!
+    updateDashboard(persona, filters);
+}
+
+
+// Note: The full selectUser is now defined at the top of the script block
+</script>
+<div class="main-container">
+    <!-- Header Section -->
+    <div class="page-header-section">
+
+        <!-- Filter Summary -->
+        <div class="filter-summary">
+            <span class="filter-item">Region: All</span>
+            <span class="filter-item">Office: All</span>
+            <span class="filter-item">Practice Area: All</span>
+            <span class="filter-item">Industry: All</span>
+            <span class="filter-item">Client: All</span>
+        </div>
+
+        <!-- Filter Controls — options populated dynamically from data.filter_dropdown_values
+             (which app.py builds via SELECT DISTINCT on gold_regional_pnl). Customer's
+             actual location/practice/industry values appear here, not hardcoded demo values. -->
+        <div class="filter-controls">
+            <div class="filter-group">
+                <label>Region</label>
+                <select id="regionFilter" class="filter-select" onchange="cascadeAndApply('regionFilter')">
+                    <option value="All" {% if not data.filters.region or data.filters.region == 'All' %}selected{% endif %}>All</option>
+                    {% for v in (data.filter_dropdown_values.region or []) %}
+                    <option value="{{ v }}" {% if data.filters.region == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Location</label>
+                <select id="locationFilter" class="filter-select" onchange="cascadeAndApply('locationFilter')">
+                    <option value="All" {% if not data.filters.location or data.filters.location == 'All' %}selected{% endif %}>All</option>
+                    {% for v in (data.filter_dropdown_values.location or []) %}
+                    <option value="{{ v }}" {% if data.filters.location == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Practice Area</label>
+                <select id="practiceAreaFilter" class="filter-select" onchange="cascadeAndApply('practiceAreaFilter')">
+                    <option value="All" {% if not data.filters.practice_area or data.filters.practice_area == 'All' %}selected{% endif %}>All</option>
+                    {% for v in (data.filter_dropdown_values.practice_area or []) %}
+                    <option value="{{ v }}" {% if data.filters.practice_area == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Industry</label>
+                <select id="industryFilter" class="filter-select" onchange="cascadeAndApply('industryFilter')">
+                    <option value="All" {% if not data.filters.industry or data.filters.industry == 'All' %}selected{% endif %}>All</option>
+                    {% for v in (data.filter_dropdown_values.industry or []) %}
+                    <option value="{{ v }}" {% if data.filters.industry == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Clear Filters Button -->
+            <button class="clear-filters-btn" onclick="console.log('[BUTTON] X clicked'); if(window.clearAllFilters) { window.clearAllFilters(); } else { console.error('[BUTTON] clearAllFilters not found!'); }" title="Clear all filters">×</button>
+        </div>
+    </div>
+
+    <!-- Key Insights Section -->
+    <div class="insights-section">
+        <h2 class="section-title">Key Insights</h2>
+
+        <div class="insights-list" id="keyInsights">
+            {#
+                Each .user-insights container stamps ITS OWN persona's data,
+                not the shared `data.insights_with_clickthrough` for the active
+                persona. Without this split, switching persona via the dropdown
+                shows the previously-active persona's content for the ~200ms
+                between persona-switch and the async /api/get-insights response.
+                That's the bug Kateryna hit where Priya briefly rendered HR
+                content. See app.py: `insights_by_persona` is pre-fetched for
+                all three personas on landing-page render.
+            #}
+            <!-- Finance Persona Insights (Sarah) -->
+            <div class="user-insights{% if data.active_persona == 'finance' %} active{% endif %}" data-user="sarah">
+                {% set sarah_ins = data.insights_by_persona.finance.insights_with_clickthrough if data.insights_by_persona else [] %}
+                {% if sarah_ins %}
+                    {% for ins in sarah_ins[:4] %}
+                        <div class="insight-item">
+                            <div class="insight-icon {% if loop.index == 1 %}revenue-icon{% elif loop.index == 2 %}expense-icon{% elif loop.index == 3 %}invoice-icon{% else %}vendor-icon{% endif %}">
+                                <i class="fas fa-lightbulb"></i>
+                            </div>
+                            <div class="insight-text">{{ ins.html|safe }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="insight-item">
+                        <div class="insight-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-lightbulb"></i></div>
+                        <div class="insight-text">
+                            <strong>Generating Key Insights...</strong> <span style="color: #666;">⏳ Processing data</span>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Admin Persona Insights (Priya - default) -->
+            <div class="user-insights{% if data.active_persona == 'admin' or not data.active_persona %} active{% endif %}" data-user="priya">
+                {% set priya_ins = data.insights_by_persona.admin.insights_with_clickthrough if data.insights_by_persona else [] %}
+                {% if priya_ins %}
+                    {% for ins in priya_ins[:4] %}
+                        <div class="insight-item">
+                            <div class="insight-icon {% if loop.index == 1 %}revenue-icon{% elif loop.index == 2 %}revenue-icon{% elif loop.index == 3 %}expense-icon{% else %}margin-icon{% endif %}">
+                                <i class="fas fa-lightbulb"></i>
+                            </div>
+                            <div class="insight-text">{{ ins.html|safe }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="insight-item">
+                        <div class="insight-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-lightbulb"></i></div>
+                        <div class="insight-text">
+                            <strong>Generating Key Insights...</strong> <span style="color: #666;">⏳ Processing data</span>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- HR Persona Insights (Michael) -->
+            <div class="user-insights{% if data.active_persona == 'hr' %} active{% endif %}" data-user="michael">
+                {% set michael_ins = data.insights_by_persona.hr.insights_with_clickthrough if data.insights_by_persona else [] %}
+                {% if michael_ins %}
+                    {% for ins in michael_ins[:4] %}
+                        <div class="insight-item">
+                            <div class="insight-icon">
+                                <i class="fas fa-lightbulb"></i>
+                            </div>
+                            <div class="insight-text">{{ ins.html|safe }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="insight-item">
+                        <div class="insight-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-lightbulb"></i></div>
+                        <div class="insight-text">
+                            <strong>Generating Key Insights...</strong> <span style="color: #666;">⏳ Processing data</span>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- High Priority Action Areas -->
+    <div class="priority-section">
+        <h2 class="section-title">High Priority Action Areas</h2>
+
+        <div class="priority-list" id="priorityList">
+            {% if data.priorities %}
+                {% for priority in data.priorities[:5] %}
+                <div class="priority-item status-{{ (priority.status_color or 'yellow')|lower }}">
+                    <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                    <div class="priority-text">
+                        <strong class="status-text-{{ (priority.status_color or 'yellow')|lower }}">{{ priority.title }}:</strong> {{ priority.description }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <!-- Loading state -->
+                <div class="priority-item" id="priorityLoading">
+                    <div class="priority-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-bolt"></i></div>
+                    <div class="priority-text">
+                        <strong>Generating Action Areas...</strong> <span style="color: #666;">⏳ Processing data</span>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Genie Chat Interface (Fixed at bottom) -->
+<div class="genie-chat-bar">
+    <div class="genie-container">
+        <div class="chat-questions" id="chatQuestions">
+            {# Persona-specific bottom chips, dynamically generated by the orchestrator.
+               Each persona div renders its 3 chips from gold_persona_insights.bottom_chip rows.
+               data-user values use the demo display names (sarah/priya/michael) for compatibility
+               with the existing persona-switcher JS, but the chip CONTENT is role-keyed in the
+               table (finance/admin/hr) and looked up that way.
+
+               Click handler binds via data-question attribute (HTML-escaped via Jinja's |e
+               filter, which converts apostrophes/quotes safely). Inline onclick="askGenie('...')"
+               broke when chip text contained apostrophes or quotes, because |tojson output has
+               embedded double-quotes that closed the attribute prematurely. #}
+            <div class="user-questions" data-user="sarah">
+                <div class="questions-grid">
+                    {% for chip in data.bottom_chips_by_persona.finance %}
+                    <button class="chat-question-btn" data-question="{{ chip.question_text|e }}" onclick="askGenie(this.dataset.question)">
+                        {{ chip.question_text }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="user-questions active" data-user="priya">
+                <div class="questions-grid">
+                    {% for chip in data.bottom_chips_by_persona.admin %}
+                    <button class="chat-question-btn" data-question="{{ chip.question_text|e }}" onclick="askGenie(this.dataset.question)">
+                        {{ chip.question_text }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="user-questions" data-user="michael">
+                <div class="questions-grid">
+                    {% for chip in data.bottom_chips_by_persona.hr %}
+                    <button class="chat-question-btn" data-question="{{ chip.question_text|e }}" onclick="askGenie(this.dataset.question)">
+                        {{ chip.question_text }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ask Genie button removed - functionality moved to AI Assistant button in header -->
+
+
+<!-- Chat Modal (Hidden by default) -->
+<div id="chatModal" class="chat-modal">
+    <div class="chat-modal-content">
+        <div class="chat-modal-header">
+            <div class="chat-title">
+                <span class="genie-sparkle">✨</span>
+                <span>AI Assistant</span>
+            </div>
+            <button class="chat-close" onclick="closeChatModal()">✕</button>
+        </div>
+
+        <!-- Question Selector View (shown initially when opened from AI Assistant) -->
+        <div id="questionSelectorView" style="display: none;">
+            <div class="ai-assistant-body" style="padding: 20px;">
+                <p class="ai-assistant-intro">Select a question or type your own:</p>
+                <div class="ai-questions-grid" id="modalQuestionsGrid">
+                    <!-- Questions will be populated based on persona -->
+                </div>
+                <div class="ai-custom-question">
+                    <input type="text" class="ai-input" id="modalCustomInput" placeholder="Type your question here..." onkeypress="handleModalInputKeyPress(event)">
+                    <button class="ai-send-btn" onclick="sendModalCustomQuestion()">Ask</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat View (shown when asking questions normally or after selecting from AI Assistant) -->
+        <div id="chatView">
+            <div class="chat-messages" id="chatMessages">
+                <!-- Chat messages will be inserted here -->
+            </div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask follow-up questions...">
+                <button class="send-btn" onclick="sendChatMessage()">Send</button>
+                <button id="exportDataBtn" class="export-btn" onclick="exportData()" style="display: none;">
+                    📥 Export CSV
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- Footer (outside of main content) -->
+<footer class="footer">
+    <div class="footer-container">
+        <p>&copy; 2025 Finance & Admin Control Center. Powered by Databricks.</p>
+    </div>
+</footer>
+
+{% block scripts %}
+<!-- Shared Modal JavaScript -->
+<script src="{{ url_for('static', filename='modal.js') }}"></script>
+<!-- Filter JavaScript -->
+<script src="{{ url_for('static', filename='cascading_filters.js') }}"></script>
+<script src="{{ url_for('static', filename='custom_dropdowns.js') }}"></script>
+
+<script>
+console.log('[DEBUG] CFO Landing script starting to execute');
+console.log('[STARTUP] Checking if applyFilters will be available...');
+
+// IMMEDIATE TEST - Put function on window right away
+window.applyFilters = window.applyFilters || function() {
+    console.error('[CRITICAL] applyFilters was called but not yet defined!');
+};
+
+    // REMOVED DUPLICATE applyFilters - Already defined at the top of the template
+
+    // Test function to ensure it's available globally
+    window.testFilters = function() {
+        console.log('[TEST] Filter test function called successfully');
+        if (window.applyFilters) {
+            console.log('[TEST] applyFilters is available');
+        } else {
+            console.error('[TEST] applyFilters is NOT available!');
+        }
+    }
+
+    // REMOVED DUPLICATE selectUser - Using the complete version defined at line ~2651
+    // The complete selectUser function that properly updates insights and priorities is defined later
+
+    // Store last query results for export
+    window.lastQueryData = null;
+    window.lastQuerySQL = null;
+    window.lastQueryDescription = null;
+
+    // Store current request controller to cancel if needed
+    let currentRequestController = null;
+    let isRequestInProgress = false;
+
+    // Define persona-specific questions
+    const personaQuestions = {
+        'priya': [
+            "What are the strategic financial implications of our recent vendor consolidation efforts, and how do they align with our quarterly cost reduction targets?",
+            "How is our headcount growth tracking against budget across different business units, and where are we seeing the highest variance?",
+            "What's driving the increase in cloud infrastructure costs this quarter?"
+        ],
+        'sarah': [
+            "Show me the burn rate trends and key drivers behind any significant changes in the last 30 days.",
+            "What are our top 5 vendor contracts by spend this quarter, and how do they compare to our forecasted budget?",
+            "Which cost centers are showing the highest variance from budget this month?"
+        ],
+        'michael': [
+            "What is the current status of our workforce planning initiatives and their impact on operational efficiency?",
+            "How are our contractor costs trending compared to full-time employee costs?",
+            "What percentage of our workforce is remote vs. on-site, and how has this impacted our real estate costs?"
+        ]
+    };
+
+    // Confirm applyFilters was defined at start of script
+    console.log('[DEBUG] applyFilters function available:', typeof window.applyFilters);
+
+    // Note: clearAllFilters is already defined at the top of the script for immediate availability
+
+    // Function to get current filter values - defined early as it's used by updatePriorityRecommendations
+    function getCurrentFilters() {
+        const filters = {};
+
+        // Get filter values from dropdowns if they exist
+        const regionSelect = document.getElementById('regionFilter');
+        const locationSelect = document.getElementById('locationFilter');
+        const practiceSelect = document.getElementById('practiceAreaFilter');
+        const industrySelect = document.getElementById('industryFilter');
+        const customerSelect = document.getElementById('customerFilter');
+
+        if (regionSelect && regionSelect.value) filters.region = regionSelect.value;
+        if (locationSelect && locationSelect.value) filters.location = locationSelect.value;
+        if (practiceSelect && practiceSelect.value) filters.practice_area = practiceSelect.value;
+        if (industrySelect && industrySelect.value) filters.industry = industrySelect.value;
+        if (customerSelect && customerSelect.value) filters.customer = customerSelect.value;
+
+        return filters;
+    }
+
+    // Define showDefaultPriorities function early so it's available for initialization
+    function showDefaultPriorities(priorityList, persona) {
+        console.log('[DEBUG] Showing loading state for priorities');
+
+        // Only show loading state (no default content)
+        priorityList.innerHTML = '';
+        for (let i = 0; i < 2; i++) {
+            const loadingItem = document.createElement('div');
+            loadingItem.className = 'priority-item';
+            loadingItem.innerHTML = `
+                <div class="priority-icon" style="animation: pulse 1.5s infinite;"><i class="fas fa-bolt"></i></div>
+                <div class="priority-text">
+                    <strong>Generating Action Areas...</strong> <span style="color: #666;">⏳ Processing data</span>
+                </div>
+            `;
+            priorityList.appendChild(loadingItem);
+        }
+        // No fallback content - just wait for the actual API response
+    }
+
+    // Define updatePriorityRecommendations early so it's available for initialization
+    window.updatePriorityRecommendations = async function updatePriorityRecommendations(userId, insights) {
+        console.log('[DEBUG] updatePriorityRecommendations called with userId:', userId, 'insights:', insights);
+        console.log('[DEBUG] Stack trace:', new Error().stack);
+
+        const priorityList = document.getElementById('priorityList');
+        if (!priorityList) {
+            console.error('[DEBUG] priorityList element not found!');
+            return;
+        }
+
+        // Map userId to persona type for the API
+        let persona = userId;
+        if (userId === 'sarah') persona = 'finance';
+        else if (userId === 'priya') persona = 'admin';
+        else if (userId === 'michael') persona = 'hr';
+
+        console.log('[DEBUG] Mapped userId to persona:', persona);
+
+        // Show default priorities immediately while loading
+        showDefaultPriorities(priorityList, persona);
+
+        // Set a timeout to keep default content if API is too slow
+        const timeoutId = setTimeout(() => {
+            console.log('[DEBUG] API timeout, keeping default recommendations');
+        }, 3000);
+
+        try {
+            console.log('[DEBUG] Sending request to /api/generate-priorities with:', {
+                persona: persona,
+                filters: getCurrentFilters(),
+                insights: insights || []
+            });
+
+            const response = await fetch('/api/generate-priorities', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    persona: persona,
+                    filters: getCurrentFilters(),
+                    insights: insights || []
+                })
+            });
+
+            console.log('[DEBUG] Response status:', response.status);
+            if (!response.ok) {
+                console.error('[DEBUG] Response not OK:', response.status, response.statusText);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('[DEBUG] Priorities response data:', data);
+
+            // Clear the timeout since we got a response
+            clearTimeout(timeoutId);
+
+            if (data.priorities && data.priorities.length > 0) {
+                priorityList.innerHTML = '';
+
+                data.priorities.forEach(priority => {
+                    const item = document.createElement('div');
+                    item.className = 'priority-item';
+                    item.innerHTML = `
+                        <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                        <div class="priority-text">
+                            <strong class="status-text-${(priority.status_color || 'yellow').toLowerCase()}">${priority.title}:</strong> ${priority.description}
+                        </div>
+                    `;
+                    priorityList.appendChild(item);
+                });
+            } else {
+                // Keep loading state if no priorities returned
+                console.log('[DEBUG] No priorities returned, keeping loading state');
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error generating priorities:', error);
+            // Clear the timeout but keep loading state on error
+            clearTimeout(timeoutId);
+            console.log('[DEBUG] Keeping loading state due to error');
+        }
+    }
+
+    // Define export function immediately so it's available for button click
+    window.exportData = function() {
+        try {
+            let csvContent = '';
+            let filename = 'cfo_data_export.csv';
+
+            // Use raw query data if available
+            if (window.lastQueryData && window.lastQueryData.length > 0) {
+                const headers = Object.keys(window.lastQueryData[0]);
+                csvContent += headers.map(h => `"${h}"`).join(',') + '\n';
+
+                window.lastQueryData.forEach(row => {
+                    const values = headers.map(h => {
+                        const val = row[h];
+                        if (val === null || val === undefined) return '""';
+                        const str = String(val);
+                        const escaped = str.replace(/"/g, '""');
+                        return `"${escaped}"`;
+                    });
+                    csvContent += values.join(',') + '\n';
+                });
+
+                filename = 'cfo_query_results.csv';
+            } else {
+                alert('No query data available to export. Please run a query first.');
+                return;
+            }
+
+            // Download CSV
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            console.log('Export completed successfully');
+        } catch (e) {
+            alert('Export failed: ' + e.message);
+            console.error(e);
+        }
+    };
+
+    // AI Assistant functionality (make it global so base.html can call it)
+    window.openAIAssistant = function() {
+        console.log('[DEBUG] Opening AI Assistant modal');
+        const modal = document.getElementById('chatModal');
+
+        if (!modal) {
+            console.error('[DEBUG] Chat modal not found!');
+            return;
+        }
+
+        const questionsGrid = document.getElementById('modalQuestionsGrid');
+        const customInput = document.getElementById('modalCustomInput');
+
+        // Force reset modal state completely - remove inline style and class
+        modal.classList.remove('show');
+        modal.style.removeProperty('display'); // Remove any inline display style
+
+        // Force a reflow to ensure the changes take effect
+        void modal.offsetHeight;
+
+        // Show question selector view, hide chat view
+        document.getElementById('questionSelectorView').style.display = 'block';
+        document.getElementById('chatView').style.display = 'none';
+
+        // Clear previous messages and custom input
+        document.getElementById('chatMessages').innerHTML = '';
+        if (customInput) {
+            customInput.value = '';
+        }
+
+        // Get current persona
+        const currentUserId = sessionStorage.getItem('selectedPersona') || 'priya';
+
+        // Get the questions based on persona - matching the bottom of the page
+        let questions = [];
+        if (currentUserId === 'priya') {
+            questions = [
+                'Why did revenue per partner go down in 2026?',
+                'Why did the Technology practice billable revenues underperform targets?',
+                'Why are Washington DC expenses over budget?'
+            ];
+        } else if (currentUserId === 'sarah') {
+            questions = [
+                'Why did accrued billable revenues underperform targets for the New York office?',
+                'Why did AB InBev\'s outstanding balance grow 40% this quarter?',
+                'Why has DSO been increasing recently in the US region?'
+            ];
+        } else if (currentUserId === 'michael') {
+            questions = [
+                'Why did the utilization for YTD 2026 reduce?',
+                'Why are bench costs rising?',
+                'Which projects are running significantly over plan? (Project name, client, planned vs actual hours, team size)'
+            ];
+        }
+
+        // Clear and populate questions
+        questionsGrid.innerHTML = '';
+        questions.forEach(question => {
+            const btn = document.createElement('button');
+            btn.className = 'ai-question-btn';
+            btn.textContent = question;
+            btn.onclick = function() {
+                // Hide question selector, show chat view
+                document.getElementById('questionSelectorView').style.display = 'none';
+                document.getElementById('chatView').style.display = 'block';
+                // Process the question directly
+                processQuestion(question);
+            };
+            questionsGrid.appendChild(btn);
+        });
+
+        // Show modal using CLASS only (CSS has !important)
+        modal.classList.add('show');
+        console.log('[DEBUG] Modal should now be visible - classList:', modal.classList.toString());
+    }
+
+
+
+
+
+    // The askGenie function is now in modal.js
+    // Override selectUser for CFO Landing specific behavior
+    /* function askGenie(question, isFollowUp = false) {
+        console.log('askGenie called:', { question, isFollowUp, isRequestInProgress });
+
+        // Cancel any ongoing request only if one is actually in progress
+        if (isRequestInProgress && currentRequestController) {
+            console.log('Cancelling previous request that is still in progress');
+            currentRequestController.abort();
+        }
+        currentRequestController = null;
+        isRequestInProgress = false;
+
+        // Show the chat modal
+        const modal = document.getElementById('chatModal');
+        const messages = document.getElementById('chatMessages');
+
+        // Hide question selector, show chat view (in case it was showing)
+        document.getElementById('questionSelectorView').style.display = 'none';
+        document.getElementById('chatView').style.display = 'block';
+
+        // Only clear messages if this is NOT a follow-up question
+        if (!isFollowUp) {
+            messages.innerHTML = '';
+            // Only reset export data if it's a new conversation
+            window.lastQueryData = null;
+            window.lastQuerySQL = null;
+            window.lastQueryDescription = null;
+            window.exportMetadata = null;
+            document.getElementById('exportDataBtn').style.display = 'none';
+        }
+
+        // Add the user's question
+        addChatMessage('user', question);
+
+        // Show modal
+        modal.classList.add('show');
+
+        // Create status container for thought process visualization
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'chat-message genie thought-process';
+        statusDiv.style.cssText = 'background-color: #f0f3f7; border-left: 3px solid #3498db; padding: 12px; margin: 10px 0; border-radius: 8px; color: #374151;';
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #007acc; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <strong style="color: #3498db;">Genie:</strong> <em style="color: #6b7280;">Analyzing your question...</em>
+            </div>
+            <div id="genie-steps" style="margin-top: 10px; font-size: 12px; color: #6b7280;"></div>
+        `;
+        messages.appendChild(statusDiv);
+        messages.scrollTop = messages.scrollHeight;
+
+        // Add spinner animation CSS if not already present
+        if (!document.querySelector('#spinner-style')) {
+            const style = document.createElement('style');
+            style.id = 'spinner-style';
+            style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+
+        let messageBuffer = '';
+        let currentSQL = '';
+        let responseStarted = false;
+        let currentResponseDiv = null;  // Track the response div for this specific request
+
+        // Create a new AbortController for this request
+        currentRequestController = new AbortController();
+        isRequestInProgress = true;
+
+        console.log('Sending request to /api/chat/stream with question:', question);
+
+        // Use streaming endpoint for real-time responses
+        fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: question }),
+            signal: currentRequestController.signal
+        })
+        .then(response => {
+            console.log('Response received:', response.status);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function processStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // Final formatting when done
+                        if (messageBuffer && !responseStarted) {
+                            // Keep status visible with the steps
+                            const spinnerDiv = statusDiv.querySelector('.spinner');
+                            if (spinnerDiv) {
+                                spinnerDiv.style.display = 'none';
+                            }
+                            const statusText = statusDiv.querySelector('em');
+                            if (statusText) {
+                                statusText.textContent = 'Analysis complete';
+                                statusText.style.color = '#28a745';
+                            }
+                            // Create a new message for non-streamed response
+                            addFormattedMessage('genie', messageBuffer);
+                        }
+                        return;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                console.log('Stream data received:', data.type, data);
+
+                                if (data.type === 'status') {
+                                    // Update thought process visualization with better formatting
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.style.cssText = 'margin: 4px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">✓</span>
+                                            <span>${data.message}</span>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+                                    }
+                                } else if (data.type === 'query_detail') {
+                                    // Show query details as sub-steps
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const detailItem = document.createElement('div');
+                                        detailItem.style.cssText = 'margin: 2px 0 2px 40px; font-size: 11px; color: #6b7280;';
+                                        detailItem.innerHTML = `• ${data.content}`;
+                                        stepsDiv.appendChild(detailItem);
+                                    }
+                                } else if (data.type === 'sql') {
+                                    // Store SQL but don't display here - it will be shown in tool_result
+                                    currentSQL = data.content;
+                                } else if (data.type === 'tool_start') {
+                                    // Show which data source is being queried with better visualization
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        const stepItem = document.createElement('div');
+                                        stepItem.style.cssText = 'margin: 8px 0; padding-left: 20px; position: relative;';
+                                        stepItem.innerHTML = `
+                                            <span style="position: absolute; left: 0;">🔍</span>
+                                            <strong style="color: #3498db;">Querying ${data.source || 'Financial Operations'}</strong>
+                                        `;
+                                        stepsDiv.appendChild(stepItem);
+
+                                        if (data.question) {
+                                            const questionItem = document.createElement('div');
+                                            questionItem.style.cssText = 'margin: 4px 0 4px 40px; font-size: 11px; color: #6b7280; font-style: italic;';
+                                            questionItem.innerHTML = `"${data.question}"`;
+                                            stepsDiv.appendChild(questionItem);
+                                        }
+                                    }
+                                } else if (data.type === 'tool_result') {
+                                    // Show results with rich metadata in steps format
+                                    const stepsDiv = document.getElementById('genie-steps');
+                                    if (stepsDiv) {
+                                        // Debug logging for all tool results
+                                        console.log('Tool result received:', {
+                                            tool: data.tool,
+                                            has_raw_data: !!data.raw_data,
+                                            raw_data_length: data.raw_data ? data.raw_data.length : 0,
+                                            raw_data_sample: data.raw_data ? data.raw_data[0] : null
+                                        });
+
+                                        // Store raw data if available
+                                        if (data.raw_data && Array.isArray(data.raw_data) && data.raw_data.length > 0) {
+                                            window.lastQueryData = data.raw_data;
+                                            console.log('✅ Stored raw query data:', data.raw_data.length, 'rows');
+                                            console.log('Sample row:', data.raw_data[0]);
+                                        } else {
+                                            console.log('⚠️ No raw_data in tool result');
+                                        }
+
+                                        if (data.description) {
+                                            window.lastQueryDescription = data.description;
+                                            const descItem = document.createElement('div');
+                                            descItem.style.cssText = 'margin: 6px 0; padding-left: 20px; position: relative;';
+                                            descItem.innerHTML = `
+                                                <span style="position: absolute; left: 0; color: #28a745;">✓</span>
+                                                <span style="color: #28a745;">${data.description}</span>
+                                            `;
+                                            stepsDiv.appendChild(descItem);
+                                        }
+
+                                        if (data.sql) {
+                                            window.lastQuerySQL = data.sql;
+                                            const formattedSQL = formatSQL(data.sql);
+                                            const sqlContainer = document.createElement('div');
+                                            sqlContainer.style.cssText = 'margin: 8px 0 8px 20px;';
+                                            sqlContainer.innerHTML = `
+                                                <details style="margin: 0;">
+                                                    <summary style="cursor: pointer; color: #3498db; font-size: 12px;">View SQL Query</summary>
+                                                    <pre class="sql-query-display" style="background: #fafafa; color: #374151; padding: 12px; border-radius: 6px; margin-top: 8px; font-size: 12px; font-family: 'Monaco', 'Consolas', monospace; overflow-x: auto; border: 1px solid #34495e; line-height: 1.4; max-height: 300px; overflow-y: auto;">${escapeHtml(formattedSQL)}</pre>
+                                                </details>
+                                            `;
+                                            stepsDiv.appendChild(sqlContainer);
+                                        }
+
+                                        if (data.tables && data.tables.length > 0) {
+                                            const tablesItem = document.createElement('div');
+                                            tablesItem.style.cssText = 'margin: 4px 0 4px 40px; font-size: 11px; color: #6b7280;';
+                                            tablesItem.innerHTML = `📊 Tables accessed: ${data.tables.join(', ')}`;
+                                            stepsDiv.appendChild(tablesItem);
+                                        }
+
+                                        if (data.row_count !== null && data.row_count !== undefined) {
+                                            const rowsItem = document.createElement('div');
+                                            rowsItem.style.cssText = 'margin: 4px 0 4px 40px; font-size: 11px; color: #6b7280;';
+                                            rowsItem.innerHTML = `📈 ${data.row_count} rows found`;
+                                            stepsDiv.appendChild(rowsItem);
+
+                                            // Always show export button when we have any rows
+                                            if (data.row_count !== null && data.row_count !== undefined) {
+                                                const exportBtn = document.getElementById('exportDataBtn');
+                                                if (exportBtn) {
+                                                    exportBtn.style.display = 'block';
+                                                    // Always update metadata for export with the latest info
+                                                    window.exportMetadata = {
+                                                        rowCount: data.row_count,
+                                                        sql: window.lastQuerySQL || currentSQL,
+                                                        description: window.lastQueryDescription,
+                                                        tables: data.tables || [],
+                                                        timestamp: new Date().toISOString()
+                                                    };
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (data.type === 'clear_status') {
+                                    // Don't hide status - keep it visible to show steps
+                                    // statusDiv.style.display = 'none';
+                                } else if (data.type === 'token') {
+                                    if (!responseStarted) {
+                                        responseStarted = true;
+                                        // Don't hide status - keep the steps visible
+                                        // Update the status to show it's complete
+                                        const spinnerDiv = statusDiv.querySelector('.spinner');
+                                        if (spinnerDiv) {
+                                            spinnerDiv.style.display = 'none';
+                                        }
+                                        const statusText = statusDiv.querySelector('em');
+                                        if (statusText) {
+                                            statusText.textContent = 'Analysis complete';
+                                            statusText.style.color = '#28a745';
+                                        }
+                                        // Create a new response div for this specific response
+                                        currentResponseDiv = document.createElement('div');
+                                        currentResponseDiv.className = 'chat-message genie response';
+                                        messages.appendChild(currentResponseDiv);
+                                    }
+                                    messageBuffer += data.content;
+                                    // Update the specific response div for this request
+                                    if (currentResponseDiv) {
+                                        const formatted = formatMarkdown(messageBuffer);
+                                        currentResponseDiv.innerHTML = `<strong>Genie:</strong> <div style="font-size: 13px; line-height: 1.5;">${formatted}</div>`;
+                                        messages.scrollTop = messages.scrollHeight;
+                                    }
+                                    // Parse for table data if present
+                                    if (messageBuffer.includes('|') && messageBuffer.includes('---')) {
+                                        // Don't overwrite lastQueryData here - it should only be set from raw_data
+                                        // Only show export button if we have actual exportable data
+                                        const exportBtn = document.getElementById('exportDataBtn');
+                                        if (exportBtn && window.lastQueryData && window.lastQueryData.length > 0) {
+                                            exportBtn.style.display = 'block';
+                                        }
+                                    }
+                                } else if (data.type === 'error') {
+                                    // Keep status visible but update to show error
+                                    const spinnerDiv = statusDiv.querySelector('.spinner');
+                                    if (spinnerDiv) {
+                                        spinnerDiv.style.display = 'none';
+                                    }
+                                    const statusText = statusDiv.querySelector('em');
+                                    if (statusText) {
+                                        statusText.textContent = 'Error occurred';
+                                        statusText.style.color = '#dc3545';
+                                    }
+                                    addChatMessage('genie', `Error: ${data.message}`);
+                                    return;
+                                }
+                            } catch (e) {
+                                console.error('Error parsing stream data:', e);
+                            }
+                        }
+                    }
+
+                    processStream();
+                });
+            }
+
+            processStream();
+        })
+        .catch(error => {
+            // Don't show error or fallback if request was aborted intentionally
+            if (error.name === 'AbortError') {
+                console.log('Request was aborted');
+                // Keep status visible
+                return;
+            }
+            console.error('Streaming error, falling back:', error);
+            // Keep status visible but update to show fallback
+            // Fallback to non-streaming endpoint
+            fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: question })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const reply = data.reply || data.message || 'No response received';
+                addFormattedMessage('genie', reply);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                addChatMessage('genie', 'Sorry, I encountered an error. Please try again.');
+            });
+        })
+        .finally(() => {
+            // Clean up controller reference and request status when request completes
+            currentRequestController = null;
+            isRequestInProgress = false;
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatSQL(sql) {
+        if (!sql) return sql;
+
+        // SQL keywords to uppercase and add line breaks
+        const keywords = [
+            'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
+            'GROUP BY', 'ORDER BY', 'HAVING', 'WITH', 'AS', 'ON', 'AND', 'OR',
+            'LIMIT', 'OFFSET', 'UNION', 'INSERT', 'UPDATE', 'DELETE', 'VALUES',
+            'SET', 'INTO', 'CREATE', 'ALTER', 'DROP', 'TABLE', 'INDEX', 'VIEW',
+            'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'DISTINCT', 'COUNT', 'SUM',
+            'AVG', 'MAX', 'MIN', 'OVER', 'PARTITION BY', 'RANK', 'ROW_NUMBER'
+        ];
+
+        // Format with proper indentation
+        let formatted = sql;
+
+        // Add line breaks before major clauses
+        formatted = formatted.replace(/\s+(SELECT|FROM|WHERE|GROUP BY|ORDER BY|HAVING|LIMIT)/gi, '\n$1');
+        formatted = formatted.replace(/\s+(LEFT JOIN|RIGHT JOIN|INNER JOIN|JOIN)/gi, '\n$1');
+        formatted = formatted.replace(/\s+AND\s+/gi, '\n  AND ');
+        formatted = formatted.replace(/\s+OR\s+/gi, '\n  OR ');
+
+        // Add indentation for subqueries
+        formatted = formatted.replace(/\(\s*SELECT/gi, '(\n  SELECT');
+
+        // Clean up multiple spaces and trim
+        formatted = formatted.replace(/\s+/g, ' ').trim();
+
+        // Split into lines and add proper indentation
+        const lines = formatted.split('\n');
+        let indentLevel = 0;
+        const formattedLines = lines.map(line => {
+            line = line.trim();
+
+            // Decrease indent for closing parenthesis
+            if (line.startsWith(')')) {
+                indentLevel = Math.max(0, indentLevel - 1);
+            }
+
+            const indentedLine = '  '.repeat(indentLevel) + line;
+
+            // Increase indent for opening parenthesis
+            if (line.includes('(') && line.includes('SELECT')) {
+                indentLevel++;
+            }
+
+            return indentedLine;
+        });
+
+        return formattedLines.join('\n');
+    }
+
+    }*/
+
+    // Removed duplicate openAIAssistant - using the global window.openAIAssistant defined earlier
+
+    // Populate questions in the modal based on persona
+    function populateModalQuestions(persona) {
+        const questionsGrid = document.getElementById('modalQuestionsGrid');
+        const questions = personaQuestions[persona] || personaQuestions['priya'];
+
+        questionsGrid.innerHTML = questions.map(q => `
+            <button class="ai-question-btn" onclick="processQuestion('${q.replace(/'/g, "\\'")}')">
+                ${q}
+            </button>
+        `).join('');
+    }
+
+    // Process question from AI Assistant selector
+    function processQuestion(question) {
+        // Hide question selector, show chat view
+        document.getElementById('questionSelectorView').style.display = 'none';
+        document.getElementById('chatView').style.display = 'block';
+
+        // Set the question in the input and send it
+        document.getElementById('chatInput').value = question;
+        sendChatMessage();
+    }
+
+    // Send custom question from modal
+    function sendModalCustomQuestion() {
+        const input = document.getElementById('modalCustomInput');
+        const question = input.value.trim();
+
+        if (question) {
+            processQuestion(question);
+        }
+    }
+
+    // Handle Enter key in modal input
+    function handleModalInputKeyPress(event) {
+        if (event.key === 'Enter') {
+            sendModalCustomQuestion();
+        }
+    }
+
+    // Close chat modal function
+    window.closeChatModal = function() {
+        console.log('[DEBUG] Closing chat modal');
+        const modal = document.getElementById('chatModal');
+        if (modal) {
+            // Remove show class and clear any inline styles
+            modal.classList.remove('show');
+            modal.style.removeProperty('display');
+
+            // Reset views immediately - no delay needed
+            document.getElementById('questionSelectorView').style.display = 'block';
+            document.getElementById('chatView').style.display = 'none';
+
+            // Clear chat messages for fresh start
+            document.getElementById('chatMessages').innerHTML = '';
+
+            // Clear input fields
+            const chatInput = document.getElementById('chatInput');
+            if (chatInput) chatInput.value = '';
+            const modalCustomInput = document.getElementById('modalCustomInput');
+            if (modalCustomInput) modalCustomInput.value = '';
+
+            console.log('[DEBUG] Modal closed - classList:', modal.classList.toString());
+        }
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('chatModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeChatModal();
+        }
+    });
+
+    // Check if we should open AI assistant on page load (from redirect)
+    window.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('openAI') === 'true') {
+            console.log('[DEBUG] Opening AI Assistant from URL parameter');
+            setTimeout(() => {
+                window.openAIAssistant();
+            }, 500); // Small delay to ensure page is fully loaded
+        }
+    });
+
+    // Helper functions (addFormattedMessage, formatMarkdown, etc) are now in modal.js
+
+
+    // Chat message functions are now in modal.js
+
+    // Modal control functions are now in modal.js
+
+    // Event listeners for modal are now in modal.js
+    /*document.getElementById('chatInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendChatMessage();
+        }
+    });*/
+
+    // Event listener for genie input at bottom of page
+    document.getElementById('genieInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            const question = this.value.trim();
+            if (question) {
+                askGenie(question, false);  // Not a follow-up, clear previous messages
+                this.value = '';
+            }
+        }
+    });
+
+    // Function to fetch and update insights based on persona and filters
+    window.updateInsights = async function updateInsights(persona, filters = {}) {
+        console.log('[DEBUG] updateInsights called with:', { persona, filters });
+
+        // Issue #2 staleness guard — tag this fetch with the shared request seq
+        // so a slow earlier response can't clobber a fresher render.
+        const myRequestId = ++_liveRequestSeq;
+        window._liveRequestSeq = _liveRequestSeq;
+
+        // Show loading state first
+        showInsightsLoading(persona);
+
+        try {
+            // Build query string
+            const params = new URLSearchParams({ persona, ...filters });
+            const url = `/api/get-insights?${params}`;
+            console.log('[DEBUG] Fetching insights from:', url, '(reqId=' + myRequestId + ')');
+
+            const response = await fetch(url);
+            const data = await response.json();
+            console.log('[DEBUG] Response received (reqId=' + myRequestId + '):', data);
+
+            if (myRequestId !== _liveRequestSeq) {
+                console.log('[DEBUG] updateInsights dropping stale response (reqId=' + myRequestId + ', latest=' + _liveRequestSeq + ')');
+                return;
+            }
+
+            if (data.status === 'success' || data.status === 'fallback') {
+                console.log('[DEBUG] Insights data:', data.insights);
+                // Update the insights in the UI
+                updateInsightsDisplay(persona, data.insights);
+                // NOTE: updatePriorityRecommendations is now called directly from selectUser and DOMContentLoaded
+                // to avoid race conditions and ensure consistent behavior
+                // const storedPersona = sessionStorage.getItem('selectedPersona') || 'priya';
+                // console.log('[DEBUG] Using storedPersona for priorities:', storedPersona);
+                // updatePriorityRecommendations(storedPersona, data.insights);
+            } else {
+                console.warn('[DEBUG] Unexpected response status:', data.status);
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error fetching insights:', error);
+        }
+    }
+
+    // Function to generate and display priority recommendations
+    window.updatePriorityRecommendations = async function updatePriorityRecommendations(userId, insights) {
+        console.log('[DEBUG] Updating priority recommendations for userId:', userId);
+
+        const priorityList = document.getElementById('priorityList');
+        if (!priorityList) {
+            console.error('[DEBUG] priorityList element not found!');
+            return;
+        }
+
+        // Map userId to persona type for the API
+        let persona = userId;
+        if (userId === 'sarah') persona = 'finance';
+        else if (userId === 'priya') persona = 'admin';
+        else if (userId === 'michael') persona = 'hr';
+
+        console.log('[DEBUG] Mapped userId to persona:', persona);
+
+        // Show default priorities immediately while loading
+        showDefaultPriorities(priorityList, persona);
+
+        // Set a timeout to keep default content if API is too slow
+        const timeoutId = setTimeout(() => {
+            console.log('[DEBUG] API timeout, keeping default recommendations');
+        }, 3000);
+
+        try {
+            console.log('[DEBUG] Sending request to /api/generate-priorities with:', {
+                persona: persona,
+                filters: getCurrentFilters(),
+                insights: insights || []
+            });
+
+            const response = await fetch('/api/generate-priorities', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    persona: persona,
+                    filters: getCurrentFilters(),
+                    insights: insights || []
+                })
+            });
+
+            console.log('[DEBUG] Response status:', response.status);
+            if (!response.ok) {
+                console.error('[DEBUG] Response not OK:', response.status, response.statusText);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('[DEBUG] Priorities response data:', data);
+
+            // Clear the timeout since we got a response
+            clearTimeout(timeoutId);
+
+            if (data.priorities && data.priorities.length > 0) {
+                priorityList.innerHTML = '';
+
+                data.priorities.forEach(priority => {
+                    const item = document.createElement('div');
+                    item.className = 'priority-item';
+                    item.innerHTML = `
+                        <div class="priority-icon"><i class="fas fa-bolt"></i></div>
+                        <div class="priority-text">
+                            <strong class="status-text-${(priority.status_color || 'yellow').toLowerCase()}">${priority.title}:</strong> ${priority.description}
+                        </div>
+                    `;
+                    priorityList.appendChild(item);
+                });
+            } else {
+                // Keep loading state if no priorities returned
+                console.log('[DEBUG] No priorities returned, keeping loading state');
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error generating priorities:', error);
+            // Clear the timeout but keep loading state on error
+            clearTimeout(timeoutId);
+            console.log('[DEBUG] Keeping loading state due to error');
+        }
+    }
+
+
+    // Function to show loading state for insights
+    function showInsightsLoading(persona) {
+        // Map persona types back to user IDs for the DOM
+        let userId = persona;
+        if (persona === 'finance') userId = 'sarah';
+        else if (persona === 'admin') userId = 'priya';
+        else if (persona === 'hr') userId = 'michael';
+
+        const insightsContainer = document.querySelector(`.user-insights[data-user="${userId}"]`);
+
+        if (!insightsContainer) {
+            return;
+        }
+
+        const insightItems = insightsContainer.querySelectorAll('.insight-item');
+
+        // Show loading state for each insight
+        insightItems.forEach((item, index) => {
+            const textDiv = item.querySelector('.insight-text');
+            if (textDiv) {
+                textDiv.innerHTML = '<strong>Generating Key Insight...</strong> <span style="color: #666;">⏳ Processing data</span>';
+            }
+        });
+    }
+
+    // Function to update insights display
+    function updateInsightsDisplay(persona, insights) {
+        console.log('[DEBUG] updateInsightsDisplay called with:', { persona, insightsCount: insights ? insights.length : 0 });
+
+        // Map persona types back to user IDs for the DOM
+        let userId = persona;
+        if (persona === 'finance') userId = 'sarah';
+        else if (persona === 'admin') userId = 'priya';
+        else if (persona === 'hr') userId = 'michael';
+
+        console.log('[DEBUG] Looking for container with data-user:', userId);
+
+        // First, make sure the correct insights container is active
+        // Remove active class from all containers
+        document.querySelectorAll('.user-insights').forEach(container => {
+            container.classList.remove('active');
+        });
+
+        // Add active class to the current user's container
+        const insightsContainer = document.querySelector(`.user-insights[data-user="${userId}"]`);
+
+        if (!insightsContainer) {
+            console.error('[DEBUG] No insights container found for user:', userId);
+            return;
+        }
+
+        // Make this container active
+        insightsContainer.classList.add('active');
+        console.log('[DEBUG] Made container active for user:', userId);
+
+        if (!insights || insights.length === 0) {
+            console.warn('[DEBUG] No insights to display');
+            return;
+        }
+
+        const insightItems = insightsContainer.querySelectorAll('.insight-item');
+        console.log('[DEBUG] Found insight items:', insightItems.length);
+
+        // Update each insight item with the new text
+        insights.forEach((insightText, index) => {
+            console.log(`[DEBUG] Updating insight ${index}:`, insightText);
+            if (insightItems[index]) {
+                const textDiv = insightItems[index].querySelector('.insight-text');
+                if (textDiv) {
+                    // The backend already provides properly formatted HTML with colors
+                    // Just insert it directly without any additional parsing
+                    textDiv.innerHTML = insightText;
+                    console.log(`[DEBUG] Updated insight ${index} with HTML from backend`);
+                } else {
+                    console.warn(`[DEBUG] No .insight-text div found for insight ${index}`);
+                }
+            } else {
+                console.warn(`[DEBUG] No insight item at index ${index}`);
+            }
+        });
+
+        console.log('[DEBUG] Finished updating insights display');
+    }
+
+    // We'll override selectUser inside DOMContentLoaded below
+
+    // Override selectUser IMMEDIATELY before any event handlers are attached
+    // REMOVED DUPLICATE selectUser - Already defined at the top of the template
+    // The top-level selectUser reloads the page with the new persona parameter
+
+    // Initialize priorities immediately when page loads
+    // This runs as soon as the script is parsed, not waiting for DOMContentLoaded
+    function initializePriorities() {
+        console.log('[DEBUG] initializePriorities called');
+
+        const priorityList = document.getElementById('priorityList');
+        if (!priorityList) {
+            console.log('[DEBUG] priorityList not found, will retry in 100ms');
+            setTimeout(initializePriorities, 100);
+            return;
+        }
+
+        console.log('[DEBUG] priorityList found, initializing priorities');
+
+        const storedPersona = sessionStorage.getItem('selectedPersona') || 'priya';
+        console.log('[DEBUG] Initial load - storedPersona:', storedPersona);
+
+        // Map user ID to persona type
+        let persona = storedPersona;
+        if (storedPersona === 'sarah') persona = 'finance';
+        else if (storedPersona === 'priya') persona = 'admin';
+        else if (storedPersona === 'michael') persona = 'hr';
+
+        // Show default priorities immediately
+        console.log('[DEBUG] Showing default priorities immediately for:', persona);
+        showDefaultPriorities(priorityList, persona);
+
+        // Then try to update with API data
+        console.log('[DEBUG] Calling updatePriorityRecommendations for initial load');
+        updatePriorityRecommendations(storedPersona, []);
+    }
+
+    // Load insights on page load
+    function setFiltersFromURL() {
+        // First try to restore saved filter state
+        const savedFiltersStr = sessionStorage.getItem('savedFilters');
+        if (savedFiltersStr) {
+            console.log('[FILTER] Restoring saved filters instead of URL params');
+            restoreFilterState();
+            return;
+        }
+
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        console.log('[DEBUG] setFiltersFromURL called with params:', window.location.search);
+
+        // Set each filter if it exists in URL
+        const regionFilter = document.getElementById('regionFilter');
+        if (regionFilter) {
+            console.log('[DEBUG] Region filter found, current value:', regionFilter.value);
+            console.log('[DEBUG] Region filter options:', Array.from(regionFilter.options).map(o => o.value));
+
+            if (urlParams.has('region')) {
+                const regionValue = urlParams.get('region');
+                console.log('[DEBUG] Setting region filter to:', regionValue);
+
+                // Try to set the value
+                regionFilter.value = regionValue;
+
+                // Verify it was set
+                console.log('[DEBUG] Region filter value after setting:', regionFilter.value);
+
+                // If not set, try finding the option manually
+                if (regionFilter.value !== regionValue) {
+                    console.log('[DEBUG] Direct setting failed, trying manual option selection');
+                    for (let option of regionFilter.options) {
+                        if (option.value === regionValue) {
+                            option.selected = true;
+                            console.log('[DEBUG] Manually selected option:', option.value);
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            console.log('[DEBUG] Region filter not found!');
+        }
+
+        const locationFilter = document.getElementById('locationFilter');
+        if (locationFilter && urlParams.has('location')) {
+            const locationValue = urlParams.get('location');
+            locationFilter.value = locationValue;
+            console.log('[DEBUG] Set location filter to:', locationValue, 'Result:', locationFilter.value);
+        }
+
+        const practiceAreaFilter = document.getElementById('practiceAreaFilter');
+        if (practiceAreaFilter && urlParams.has('practice_area')) {
+            const practiceValue = urlParams.get('practice_area');
+            practiceAreaFilter.value = practiceValue;
+            console.log('[DEBUG] Set practice_area filter to:', practiceValue, 'Result:', practiceAreaFilter.value);
+        }
+
+        const industryFilter = document.getElementById('industryFilter');
+        if (industryFilter && urlParams.has('industry')) {
+            const industryValue = urlParams.get('industry');
+            industryFilter.value = industryValue;
+            console.log('[DEBUG] Set industry filter to:', industryValue, 'Result:', industryFilter.value);
+        }
+
+        const customerFilter = document.getElementById('customerFilter');
+        if (customerFilter && urlParams.has('customer')) {
+            const customerValue = urlParams.get('customer');
+            customerFilter.value = customerValue;
+            console.log('[DEBUG] Set customer filter to:', customerValue, 'Result:', customerFilter.value);
+        }
+    }
+
+    function initializeOnDOMReady() {
+        console.log('[DEBUG] Initializing page (DOM ready)');
+        console.log('[DEBUG] Current URL:', window.location.href);
+        console.log('[DEBUG] Session storage selectedPersona:', sessionStorage.getItem('selectedPersona'));
+
+        // CRITICAL: Override selectUser as soon as DOM is ready
+        console.log('[PERSONA] DOM Ready - Overriding selectUser with custom version');
+        window.selectUser = customSelectUser;
+
+        // Set filter dropdowns from URL parameters (with small delay to ensure dropdowns are rendered)
+        setTimeout(() => {
+            setFiltersFromURL();
+        }, 100);
+
+        // Helper: mirror critical [INIT] traces to the server log too so we can
+        // diagnose persona-refresh / patching issues from the Databricks Apps log
+        // viewer without needing the user's browser console.
+        const logToServer = (tag, msg) => {
+            try {
+                fetch('/api/_diag/jslog', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tag: tag, message: msg}),
+                }).catch(() => {});
+            } catch (_) { /* swallow — never break UX on a log */ }
+        };
+
+        const storedPersona = sessionStorage.getItem('selectedPersona') || 'priya';
+        const storedName = sessionStorage.getItem('selectedName');
+        const storedRole = sessionStorage.getItem('selectedRole');
+        console.log('[INIT] storedPersona =', storedPersona, '| storedName =', storedName, '| storedRole =', storedRole);
+        logToServer('INIT', `storedPersona=${storedPersona} storedName=${storedName} storedRole=${storedRole} userAgent=${navigator.userAgent.substring(0,60)}`);
+
+        // Map user IDs to persona types
+        let persona = storedPersona;
+        if (storedPersona === 'sarah') persona = 'finance';
+        else if (storedPersona === 'priya') persona = 'admin';
+        else if (storedPersona === 'michael') persona = 'hr';
+        console.log('[INIT] mapped persona type =', persona);
+
+        // -----------------------------------------------------------------
+        // ISSUE #1 FIX — Persona-refresh wrong-content bug
+        //
+        // The server template renders the SAME admin-KPI content into all 3
+        // `<div class="user-insights" data-user="...">` containers and marks
+        // priya's container as `.active` by default. On refresh, sessionStorage
+        // restores the correct persona but the active container still shows
+        // the server-rendered admin content.
+        //
+        // The fix has two halves, in strict order:
+        //   1. SYNC: before any async work, remove `.active` from every
+        //      `.user-insights` / `.user-questions` and add `.active` to the
+        //      correct stored persona. This makes the right container visible.
+        //   2. ASYNC: explicitly fetch `/api/get-insights?persona=<role>` and
+        //      patch the active container's `.insight-text` divs with the
+        //      correct persona's content. Same for `/api/generate-priorities`
+        //      → #priorityList. This OVERWRITES the server-rendered admin
+        //      content with the right persona's content.
+        // -----------------------------------------------------------------
+
+        // -- STEP 1: synchronous class swap (before any fetch) --
+        document.querySelectorAll('.user-questions').forEach(q => q.classList.remove('active'));
+        document.querySelectorAll('.user-insights').forEach(i => i.classList.remove('active'));
+
+        const selectedQuestions = document.querySelector(`.user-questions[data-user="${storedPersona}"]`);
+        const selectedInsights  = document.querySelector(`.user-insights[data-user="${storedPersona}"]`);
+        if (selectedQuestions) {
+            selectedQuestions.classList.add('active');
+            console.log('[INIT] activated .user-questions for', storedPersona);
+        }
+        if (selectedInsights) {
+            selectedInsights.classList.add('active');
+            console.log('[INIT] activated .user-insights for', storedPersona);
+        }
+
+        // Now safe to call initializePriorities — it reads sessionStorage and shows
+        // default priorities for the right persona while updatePriorityRecommendations
+        // is running underneath.
+        console.log('[DEBUG] About to call initializePriorities from initializeOnDOMReady');
+        initializePriorities();
+
+        // CRITICAL: Trigger selectUser to update name/role chrome (and fire its own
+        // fetch). We still call it because it owns the dropdown UX state, but we
+        // do NOT rely on its fetch alone — the explicit fetch below is the source
+        // of truth for ISSUE #1.
+        if (storedPersona && storedName && storedRole) {
+            console.log('[DEBUG] Triggering selectUser for saved persona on page load');
+            window.selectUser(storedPersona, storedName, storedRole);
+        } else {
+            const defaultData = {
+                'priya':   { name: 'Priya Patel', role: 'Operations Director' },
+                'sarah':   { name: 'Sarah Chen',  role: 'Finance Manager' },
+                'michael': { name: 'Michael Kim', role: 'HR Lead' }
+            };
+            const userData = defaultData[storedPersona] || defaultData['priya'];
+            console.log('[DEBUG] Using default persona data:', userData);
+            window.selectUser(storedPersona, userData.name, userData.role);
+        }
+
+        const filters = getCurrentFilters();
+        console.log('[INIT] current filters:', filters);
+
+        // -- STEP 2: async — explicit fetch + patch for the active container --
+        // This is the safety net that fixes Issue #1. Even if customSelectUser's
+        // fetch path fails / races, this call guarantees the correct persona's
+        // KPIs land in the DOM. The request-id sequencer (Issue #2) ensures the
+        // LATEST request wins if multiple end up in flight.
+        const insightsParams = new URLSearchParams({ persona, ...filters });
+        const insightsUrl = `/api/get-insights?${insightsParams.toString()}`;
+        console.log('[INIT] explicit refresh fetch URL:', insightsUrl);
+        logToServer('INIT', `explicit refresh fetch URL=${insightsUrl} persona=${persona} storedPersona=${storedPersona}`);
+        const myRequestId = ++_liveRequestSeq;
+        window._liveRequestSeq = _liveRequestSeq;
+        fetch(insightsUrl)
+            .then(r => r.json())
+            .then(data => {
+                console.log('[INIT] explicit refresh response (reqId=' + myRequestId + '):', data);
+                const previewFirstInsight = (data && Array.isArray(data.insights) && data.insights[0]) ? String(data.insights[0]).substring(0, 200) : '(none)';
+                logToServer('INIT', `explicit refresh response reqId=${myRequestId} latest=${_liveRequestSeq} status=${data && data.status} n_insights=${data && Array.isArray(data.insights) ? data.insights.length : 0} preview="${previewFirstInsight}"`);
+                if (myRequestId !== _liveRequestSeq) {
+                    console.log('[INIT] dropping stale refresh response (reqId=' + myRequestId + ', latest=' + _liveRequestSeq + ')');
+                    logToServer('INIT', `DROPPED stale refresh response reqId=${myRequestId} latest=${_liveRequestSeq}`);
+                    return;
+                }
+                if ((data.status === 'success' || data.status === 'fallback') && Array.isArray(data.insights)) {
+                    const activeContainer = document.querySelector(`.user-insights[data-user="${storedPersona}"]`);
+                    if (!activeContainer) {
+                        console.warn('[INIT] active container missing for', storedPersona);
+                        logToServer('INIT', `WARN active container missing for ${storedPersona}`);
+                        return;
+                    }
+                    const insightItems = activeContainer.querySelectorAll('.insight-item');
+                    logToServer('INIT', `patching ${data.insights.length} insights into ${insightItems.length} .insight-item elements in container[data-user="${storedPersona}"]`);
+                    data.insights.forEach((html, idx) => {
+                        if (insightItems[idx]) {
+                            const textDiv = insightItems[idx].querySelector('.insight-text');
+                            if (textDiv) {
+                                textDiv.innerHTML = html;
+                                console.log('[INIT] patched insight-text', idx, 'for persona', persona);
+                            }
+                        }
+                    });
+                    console.log('[INIT] explicit refresh completed — overwrote server-rendered content for', storedPersona);
+                    logToServer('INIT', `explicit refresh COMPLETED — overwrote server-rendered content for ${storedPersona} (persona=${persona})`);
+                } else {
+                    console.warn('[INIT] explicit refresh got unexpected response shape:', data);
+                    logToServer('INIT', `WARN unexpected response shape: status=${data && data.status} keys=${Object.keys(data || {}).join(',')}`);
+                }
+            })
+            .catch(err => {
+                console.error('[INIT] explicit refresh fetch failed:', err);
+                logToServer('INIT', `ERROR explicit refresh fetch failed: ${err && err.message}`);
+            });
+
+        // Also force-refresh the priority list (#priorityList) for the correct
+        // persona. The server-rendered action_areas suffer the same bug as the
+        // insight tiles — they're admin's content because the server doesn't
+        // know which persona to render. updatePriorityRecommendations does an
+        // explicit POST to /api/generate-priorities with the correct persona
+        // and rewrites #priorityList.
+        if (typeof window.updatePriorityRecommendations === 'function') {
+            console.log('[INIT] calling updatePriorityRecommendations for priority list refresh');
+            window.updatePriorityRecommendations(storedPersona, []);
+        }
+
+        console.log('[DEBUG] Calling updateInsights on page load (belt-and-suspenders)');
+        updateInsights(persona, filters);
+    }
+
+    // Functions now use page reload, no need for pending updates
+
+    // Check if DOM is already loaded or wait for it
+    if (document.readyState === 'loading') {
+        console.log('[DEBUG] DOM still loading, waiting for DOMContentLoaded');
+        document.addEventListener('DOMContentLoaded', initializeOnDOMReady);
+    } else {
+        console.log('[DEBUG] DOM already loaded, initializing immediately');
+        initializeOnDOMReady();
+    }
+
+    // Also set filters immediately when script runs (as a backup)
+    window.addEventListener('load', () => {
+        console.log('[DEBUG] Window fully loaded, setting filters again');
+        setFiltersFromURL();
+    });
+
+    // Also add a fallback to ensure priorities load even if the above doesn't fire
+    setTimeout(() => {
+        console.log('[DEBUG] Fallback priority initialization check at 500ms');
+        const priorityList = document.getElementById('priorityList');
+        if (priorityList && priorityList.querySelector('#priorityLoading')) {
+            console.log('[DEBUG] Priorities still not loaded, forcing initialization');
+            initializePriorities();
+        }
+    }, 500);
+
+    // Add an even simpler direct call after a short delay
+    setTimeout(() => {
+        console.log('[DEBUG] Direct priority load attempt at 1000ms');
+        const storedPersona = sessionStorage.getItem('selectedPersona') || 'priya';
+        console.log('[DEBUG] About to call updatePriorityRecommendations directly with persona:', storedPersona);
+        updatePriorityRecommendations(storedPersona, []);
+    }, 1000);
+
+    // Also use window.onload as a final backup
+    window.addEventListener('load', function() {
+        console.log('[DEBUG] Window fully loaded, checking priorities');
+
+        // CRITICAL: Override selectUser AFTER base.html has loaded
+        console.log('[PERSONA] Overriding selectUser with custom version');
+        window.selectUser = customSelectUser;
+
+        setTimeout(() => {
+            const priorityList = document.getElementById('priorityList');
+            if (priorityList && priorityList.querySelector('#priorityLoading')) {
+                console.log('[DEBUG] Window.onload: Priorities still loading, forcing init');
+                initializePriorities();
+            }
+        }, 100);
+    });
+
+    // Function to update filter summary display
+    function updateFilterSummary() {
+        const filters = getCurrentFilters();
+        const filterItems = document.querySelectorAll('.filter-summary .filter-item');
+
+        if (filterItems.length >= 5) {
+            filterItems[0].textContent = `Region: ${filters.region || 'All'}`;
+            filterItems[1].textContent = `Office: ${filters.location || 'All'}`;
+            filterItems[2].textContent = `Practice Area: ${filters.practice_area || 'All'}`;
+            filterItems[3].textContent = `Industry: ${filters.industry || 'All'}`;
+            filterItems[4].textContent = `Client: ${filters.customer || 'All'}`;
+        }
+    }
+
+    // Dynamic filter updating based on actual data
+    async function updateFilterOptions(changedFilter = null) {
+        const filters = getCurrentFilters();
+
+        try {
+            // Build query params for current filter state
+            const params = new URLSearchParams(filters);
+            const response = await fetch(`/api/get-filter-options?${params}`);
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                const options = data.options;
+
+                // Update each filter dropdown with valid options
+                updateDropdownOptions('regionFilter', options.regions, filters.region);
+                updateDropdownOptions('locationFilter', options.locations, filters.location);
+                updateDropdownOptions('practiceAreaFilter', options.practice_areas, filters.practice_area);
+                updateDropdownOptions('industryFilter', options.industries, filters.industry);
+                updateDropdownOptions('customerFilter', options.customers, filters.customer);
+
+                console.log('[DEBUG] Filter options updated:', options);
+            }
+        } catch (error) {
+            console.error('[DEBUG] Error updating filter options:', error);
+            // Fall back to static filtering if API fails
+            fallbackToStaticFiltering(changedFilter);
+        }
+    }
+
+    function updateDropdownOptions(dropdownId, options, currentValue) {
+        const dropdown = document.getElementById(dropdownId);
+        if (!dropdown) return;
+
+        const previousValue = dropdown.value;
+
+        // Clear and repopulate options
+        dropdown.innerHTML = '';
+        options.forEach(option => {
+            const optElement = document.createElement('option');
+            optElement.value = option;
+            optElement.textContent = option;
+            dropdown.appendChild(optElement);
+        });
+
+        // Try to maintain current selection if still valid
+        if (options.includes(currentValue || previousValue)) {
+            dropdown.value = currentValue || previousValue;
+        } else {
+            dropdown.value = 'All';
+        }
+    }
+
+    // Fallback static filtering if API is unavailable
+    function fallbackToStaticFiltering(changedFilter) {
+        if (changedFilter === 'regionFilter') {
+            const regionLocationMap = {
+                'All': ['All', 'Amsterdam', 'Atlanta', 'Bangalore', 'Chicago', 'Dubai', 'Dublin', 'Frankfurt', 'Houston',
+                        'Kuala Lumpur', 'London', 'Madrid', 'Manila', 'Mexico City', 'Milan', 'Mumbai', 'New York',
+                        'Paris', 'San Francisco', 'Sao Paulo', 'Seoul', 'Shanghai', 'Singapore', 'Sydney', 'Tokyo',
+                        'Toronto', 'Washington DC', 'Zurich'],
+                'Americas': ['All', 'Atlanta', 'Chicago', 'Houston', 'Mexico City', 'New York', 'San Francisco',
+                             'Sao Paulo', 'Toronto', 'Washington DC'],
+                'Asia Pacific': ['All', 'Bangalore', 'Kuala Lumpur', 'Manila', 'Mumbai', 'Seoul', 'Shanghai',
+                                 'Singapore', 'Sydney', 'Tokyo'],
+                'EMEA': ['All', 'Amsterdam', 'Dubai', 'Dublin', 'Frankfurt', 'London', 'Madrid', 'Milan',
+                         'Paris', 'Zurich']
+            };
+
+            const regionFilter = document.getElementById('regionFilter');
+            const locationFilter = document.getElementById('locationFilter');
+            if (regionFilter && locationFilter) {
+                const selectedRegion = regionFilter.value;
+                const availableLocations = regionLocationMap[selectedRegion] || regionLocationMap['All'];
+                updateDropdownOptions('locationFilter', availableLocations, locationFilter.value);
+            }
+        }
+    }
+
+    // Update insights when filters change
+    function initializeFilterListeners() {
+        console.log('[DEBUG] initializeFilterListeners() called');
+
+        // Test if filters exist
+        console.log('[DEBUG] Testing filter elements:');
+        console.log('[DEBUG]   regionFilter exists:', !!document.getElementById('regionFilter'));
+        console.log('[DEBUG]   locationFilter exists:', !!document.getElementById('locationFilter'));
+        console.log('[DEBUG]   practiceAreaFilter exists:', !!document.getElementById('practiceAreaFilter'));
+        console.log('[DEBUG]   industryFilter exists:', !!document.getElementById('industryFilter'));
+        console.log('[DEBUG]   customerFilter exists:', !!document.getElementById('customerFilter'));
+
+        // Add event listeners to filter dropdowns if they exist
+        const filterSelects = document.querySelectorAll('#regionFilter, #locationFilter, #practiceAreaFilter, #industryFilter, #customerFilter');
+        console.log('[DEBUG] Found', filterSelects.length, 'filter elements');
+
+        // REMOVED DUPLICATE EVENT LISTENER - Using inline onchange="applyFilters()" instead
+        // The filters already have onchange="applyFilters()" in the HTML
+        console.log('[DEBUG] Filter elements ready - using inline onchange handlers');
+
+        // Initialize filter options on page load
+        updateFilterOptions();
+
+        // The selectUser override is now defined earlier in the script to ensure it runs before base.html handlers
+    }
+
+    // Call filter initialization with our main initialization
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeFilterListeners);
+    } else {
+        initializeFilterListeners();
+    }
+
+    // Ensure custom dropdowns are initialized after a delay
+    setTimeout(() => {
+        if (!window.customDropdowns || Object.keys(window.customDropdowns).length === 0) {
+            console.log('[DEBUG] Custom dropdowns not initialized yet, checking again...');
+            // Try to find them in the DOM
+            const dropdowns = document.querySelectorAll('.custom-dropdown');
+            console.log('[DEBUG] Found', dropdowns.length, 'custom dropdown elements in DOM');
+        } else {
+            console.log('[DEBUG] Custom dropdowns initialized:', Object.keys(window.customDropdowns));
+        }
+    }, 500);
+
+    // FINAL VERIFICATION - Check if applyFilters exists
+    console.log('===========================================');
+    console.log('[FINAL CHECK] Is applyFilters defined?', typeof window.applyFilters);
+    console.log('[FINAL CHECK] Can we call it?', typeof window.applyFilters === 'function');
+    if (typeof window.applyFilters === 'function') {
+        console.log('[FINAL CHECK] ✅ applyFilters is ready to use');
+    } else {
+        console.error('[FINAL CHECK] ❌ applyFilters is NOT a function!');
+    }
+    console.log('===========================================');
+</script>
+
+<!-- FINAL STYLE OVERRIDES - Absolutely ensure these styles are applied -->
+<style>
+    /* Style buttons with very light green tint */
+    .chat-question-btn,
+    button.chat-question-btn,
+    .chat-questions button,
+    .chat-questions .chat-question-btn,
+    .questions-grid button {
+        background: #f0fdf4 !important;  /* Very light green background */
+        background-color: #f0fdf4 !important;
+        color: #374151 !important;
+        border: 1.5px solid #dcfce7 !important;  /* Light green border */
+        padding: 12px 16px !important;
+        border-radius: 8px !important;
+        cursor: pointer !important;
+        font-weight: 500 !important;
+        width: 100% !important;
+        /* All chips in the same row are the same height — fill the grid row.
+           min-height handles the case where ALL chips in a row are short.
+           align-self: stretch + height: 100% forces equal heights across siblings. */
+        min-height: 56px !important;
+        height: 100% !important;
+        align-self: stretch !important;
+        max-height: none !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        white-space: normal !important;
+        word-break: normal !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .chat-question-btn:hover,
+    button.chat-question-btn:hover,
+    .chat-questions button:hover,
+    .chat-questions .chat-question-btn:hover,
+    .questions-grid button:hover {
+        background: rgba(255, 95, 70, 0.15) !important;  /* Light transparent orange based on #ff5f46 */
+        background-color: rgba(255, 95, 70, 0.15) !important;
+        border-color: #ff5f46 !important;
+        color: #ff5f46 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 4px rgba(255, 95, 70, 0.15) !important;
+    }
+
+    /* Fix layout - remove extra padding */
+    .main-container {
+        padding: 0 !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+        background: #fafafa !important;  /* Very light gray background */
+    }
+
+    .page-header-section {
+        padding: 20px 16px !important;
+        margin: 0 !important;
+        background: #fafafa !important;  /* Very light gray background */
+    }
+
+    .insights-section,
+    .priority-section {
+        padding-left: 24px !important;  /* Align with other sections */
+        padding-right: 16px !important;
+        margin: 0 !important;
+        background: #fafafa !important;  /* Very light gray background */
+    }
+
+    .insights-section {
+        padding-top: 20px !important;
+        padding-bottom: 20px !important;
+    }
+
+    .priority-section {
+        padding-top: 0 !important;
+        padding-bottom: 20px !important;
+    }
+
+    .chat-questions {
+        padding-top: 0 !important;
+        padding-bottom: 40px !important;
+    }
+
+    /* Force colored borders on insights and actions */
+    .insight-item {
+        border-left: 4px solid #10b981 !important;
+        background: #ffffff !important;
+        border-right: 1px solid #e5e7eb !important;
+        border-top: 1px solid #e5e7eb !important;
+        border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    .priority-item {
+        border-left: 4px solid #ff5f46 !important;
+        background: #ffffff !important;
+        border-right: 1px solid #e5e7eb !important;
+        border-top: 1px solid #e5e7eb !important;
+        border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    /* Ensure questions grid layout */
+    .questions-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 12px !important;
+        margin-top: 20px !important;
+    }
+
+    /* Remove any inline styles that might be interfering */
+    [style*="background-color: white"] .chat-question-btn {
+        background: #4ade80 !important;
+        background-color: #4ade80 !important;
+    }
+
+    /* CRITICAL FIXES - MUST BE LAST */
+
+    /* 1. MOVE EVERYTHING LEFT - Close to navigation */
+    .main-content {
+        padding-left: 24px !important;  /* Small consistent padding from nav */
+        margin-left: 0px !important;  /* Remove default margin */
+        background: #fafafa !important;  /* Very light gray background */
+    }
+
+    /* Force ALL content sections to align at same position close to nav */
+    .container,
+    .main-container,
+    .page-header-section,
+    .insights-section,
+    .priority-section {
+        padding-left: 24px !important;  /* All sections start at same point */
+        margin-left: 0px !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    /* Align filter controls exactly with other sections - REMOVED, using CSS file instead */
+
+    /* 2. FIX QUESTIONS - Align perfectly with AI Assistant button */
+    .chat-questions {
+        position: fixed !important;
+        bottom: 53px !important;  /* Move up 2 more pixels for perfect alignment */
+        left: 0 !important;
+        right: 0 !important;
+        background: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100vw !important;
+        z-index: 999 !important;
+        height: 44px !important;
+    }
+
+    /* Position questions grid properly */
+    .chat-questions .questions-grid {
+        margin-left: 280px !important; /* Account for sidebar */
+        margin-right: 160px !important; /* Leave space for Ask Genie button */
+        max-width: calc(100% - 440px) !important;
+        height: 44px !important;  /* Match button height */
+        align-items: center !important;
+        display: grid !important;
+    }
+
+    .questions-grid {
+        width: 100% !important;
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 12px !important;
+    }
+
+    /* 3. FIX BORDERS - Only ONE left border per box */
+    /* Remove ALL borders first */
+    .insight-item, .insight-card,
+    .priority-item, .priority-card {
+        border: none !important;
+        border-left: none !important;
+    }
+
+    /* Then add ONLY the left border to the main container */
+    .insight-item {
+        border-left: 4px solid #10b981 !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: none !important;
+    }
+
+    .priority-item {
+        border-left: 4px solid #ff5f46 !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: none !important;
+    }
+
+    /* Ensure no child elements have borders */
+    .insight-item *,
+    .priority-item * {
+        border-left: none !important;
+    }
+
+    /* 4. FIX ICONS - Gray aesthetic instead of colored */
+    .insight-icon,
+    .revenue-icon,
+    .expense-icon,
+    .invoice-icon,
+    .vendor-icon,
+    .priority-icon {
+        background: #f3f4f6 !important;
+        color: #6b7280 !important;
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 18px !important;
+        border-radius: 6px !important;
+    }
+
+    /* AI Assistant Modal Styles */
+    .ai-assistant-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ai-assistant-modal[style*="display: flex"] {
+        display: flex !important;
+    }
+
+    .ai-assistant-content {
+        background: #ffffff;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        padding: 0;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .ai-assistant-header {
+        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+        padding: 20px 24px;
+        border-radius: 12px 12px 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .ai-assistant-header h3 {
+        margin: 0;
+        color: #1f2937;
+        font-size: 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .ai-assistant-header h3::before {
+        content: "🤖";
+        font-size: 24px;
+    }
+
+    .ai-close {
+        background: transparent;
+        border: none;
+        font-size: 24px;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+    }
+
+    .ai-close:hover {
+        background: #f3f4f6;
+        color: #374151;
+    }
+
+    .ai-assistant-body {
+        padding: 24px;
+    }
+
+    /* AI Assistant modal CSS is now in /static/modal.css */
+</style>
+{% endblock %}

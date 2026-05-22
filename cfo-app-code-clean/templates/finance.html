@@ -1,0 +1,810 @@
+<!-- templates/finance.html - Finance page with embedded Lakeview dashboard -->
+{% extends "base.html" %}
+
+{% block title %}Finance Dashboard - Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<style>
+    /* Reset body and html to ensure full width */
+    body, html {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow-x: auto !important;
+    }
+
+    /* Override main content to remove all padding */
+    .main-content {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        min-height: calc(100vh - 60px);
+        position: relative;
+        overflow-y: auto;
+        background: #0b2026;
+    }
+
+    /* Unified content wrapper for both dashboard and tables */
+    .finance-content-wrapper {
+        max-width: 1440px; /* Set a max width for centering */
+        margin: 0 auto;
+        padding: 0;
+        position: relative;
+    }
+
+    /* Dashboard container - compact height */
+    .dashboard-container {
+        position: relative;
+        width: 100%;
+        height: 900px; /* Compact height to fit dashboard content */
+        background: #0b2026;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    /* Iframe with proper sizing */
+    .dashboard-iframe {
+        width: 108%; /* Make iframe wider */
+        height: 900px; /* Match container height */
+        border: none;
+        margin: 0;
+        padding: 0;
+        background: #0b2026;
+        display: block;
+        transform: scale(1.08); /* Scale up slightly */
+        transform-origin: left top; /* Scale from left-top corner */
+        position: relative;
+        left: 0; /* Start from left edge - no negative offset */
+    }
+
+    /* Loading indicator */
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #0b2026;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top: 4px solid #007acc;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        position: absolute;
+        margin-top: 70px;
+        color: #888;
+        font-size: 14px;
+    }
+
+    /* Admin tables section styles */
+    .admin-tables-section {
+        padding: var(--spacing-xl) 30px var(--spacing-xl) 0; /* More right padding to align perfectly */
+        width: 100%;
+        background: #0b2026;
+        box-sizing: border-box;
+    }
+
+    .workflow-section {
+        margin-bottom: var(--spacing-xxl);
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--db-text-primary);
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .data-table {
+        width: 100%;
+        background: var(--db-background-secondary);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .data-table table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    /* Set consistent column widths for alignment between tables */
+    /* Top table columns */
+    #invoicesTable th:nth-child(1),
+    #invoicesTable td:nth-child(1) {
+        width: 25%;  /* Invoice Title */
+    }
+    #invoicesTable th:nth-child(2),
+    #invoicesTable td:nth-child(2) {
+        width: 20%;  /* Invoice Value */
+    }
+    #invoicesTable th:nth-child(3),
+    #invoicesTable td:nth-child(3) {
+        width: 20%;  /* Due Date */
+    }
+    #invoicesTable th:nth-child(4),
+    #invoicesTable td:nth-child(4) {
+        width: 20%;  /* Days Overdue - matches Partner below */
+    }
+    #invoicesTable th:nth-child(5),
+    #invoicesTable td:nth-child(5) {
+        width: 15%;  /* Initiate Action */
+    }
+
+    /* Bottom table columns */
+    #outliersTable th:nth-child(1),
+    #outliersTable td:nth-child(1) {
+        width: 25%;  /* Client Name */
+    }
+    #outliersTable th:nth-child(2),
+    #outliersTable td:nth-child(2) {
+        width: 20%;  /* Expense Value */
+    }
+    #outliersTable th:nth-child(3),
+    #outliersTable td:nth-child(3) {
+        width: 20%;  /* Share of Contract */
+    }
+    #outliersTable th:nth-child(4),
+    #outliersTable td:nth-child(4) {
+        width: 20%;  /* Partner - matches Days Overdue above */
+    }
+    #outliersTable th:nth-child(5),
+    #outliersTable td:nth-child(5) {
+        width: 15%;  /* Initiate Action */
+    }
+
+    .data-table th {
+        background: rgba(0, 0, 0, 0.4);
+        color: var(--db-text-primary);
+        padding: var(--spacing-md);
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid var(--db-accent-primary);
+    }
+
+    .data-table td {
+        padding: var(--spacing-md);
+        color: var(--db-text-primary);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .data-table td:last-child,
+    .data-table th:last-child {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .data-table tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .action-button {
+        padding: var(--spacing-sm) var(--spacing-md);
+        background: var(--db-accent-primary);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+    }
+
+    .action-button:hover {
+        background: var(--db-accent-danger);
+        transform: translateY(-1px);
+    }
+
+    .send-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: var(--db-accent-green);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .cancel-button {
+        padding: var(--spacing-sm) var(--spacing-lg);
+        background: var(--db-accent-gray);
+        color: white;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    .overdue-high { color: #ff3621; font-weight: 600; }
+    .overdue-medium { color: #ffab00; font-weight: 600; }
+    .overdue-low { color: #4299e0; }
+
+    .expense-high { color: #ff3621; font-weight: 600; }
+    .expense-medium { color: #ffab00; }
+
+    /* Email Modal Styles */
+    .email-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .email-modal.active {
+        display: flex;
+    }
+
+    .email-content {
+        background: var(--db-background-secondary);
+        border-radius: var(--radius-lg);
+        width: 90%;
+        max-width: 800px;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .email-header {
+        padding: var(--spacing-md) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid var(--db-accent-gray);
+    }
+
+    .email-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--db-text-primary);
+        margin-bottom: var(--spacing-xs);
+    }
+
+    .email-form {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+
+    .form-group {
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .form-label {
+        display: block;
+        color: var(--db-accent-gray);
+        margin-bottom: 4px;
+        font-size: 0.8rem;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 6px 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: var(--radius-sm);
+        color: var(--db-text-primary);
+        font-family: inherit;
+        font-size: 0.85rem;
+    }
+
+    .form-textarea {
+        min-height: 100px;
+        max-height: 150px;
+        resize: vertical;
+        font-size: 0.85rem;
+    }
+
+    .email-footer {
+        padding: var(--spacing-md) var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.2);
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--spacing-md);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .ai-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        background: rgba(74, 156, 184, 0.2);
+        color: var(--db-accent-teal);
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        margin-left: var(--spacing-sm);
+    }
+
+    /* Loading state styles */
+    .email-content.loading .form-input:not(#emailBody),
+    .email-content.loading .form-textarea:not(#emailBody) {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+    }
+
+    .loading-indicator {
+        animation: pulse 2s infinite;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Unified wrapper for dashboard and tables -->
+<div class="finance-content-wrapper">
+    <!-- Dashboard container -->
+    <div class="dashboard-container">
+        <!-- Loading indicator -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Finance Dashboard...</div>
+        </div>
+
+        <!-- Dashboard iframe -->
+        <iframe
+            id="dashboardIframe"
+            class="dashboard-iframe"
+            src="https://e2-demo-west.cloud.databricks.com/embed/dashboardsv3/01f116c6ff5e1642b042683efc8b3c8f?o=2556758628403379"
+            allowfullscreen
+            frameborder="0"
+            scrolling="no"
+            onload="document.getElementById('loadingOverlay').style.display='none';">
+        </iframe>
+    </div>
+
+    <!-- Admin tables section - below dashboard -->
+    <div class="admin-tables-section">
+    <!-- Top Unpaid Invoices Section -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top Unpaid Invoices</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Invoice Title</th>
+                        <th>Invoice Value</th>
+                        <th>Due Date</th>
+                        <th>Days Overdue</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="invoicesTableBody">
+                    <!-- Data will be loaded dynamically from API -->
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: var(--db-accent-gray);">
+                            Loading invoice data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Top T&E Outliers Section -->
+    <div class="workflow-section">
+        <h2 class="section-title">Top T&E Outliers (>6% of Contract Value)</h2>
+        <div class="data-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Client Name</th>
+                        <th>Expense Value</th>
+                        <th>Share of Contract Value</th>
+                        <th>Partner</th>
+                        <th>Initiate Action</th>
+                    </tr>
+                </thead>
+                <tbody id="outliersTableBody">
+                    <!-- Data will be loaded dynamically from API -->
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: var(--db-accent-gray);">
+                            Loading T&E outlier data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Email Modal (outside wrapper) -->
+<div class="email-modal" id="emailModal">
+    <div class="email-content">
+        <div class="email-header">
+            <h3 class="email-title">Email Template <span class="ai-badge"><i class="fas fa-magic"></i> AI Generated</span></h3>
+            <p style="color: var(--db-accent-gray); font-size: 0.8rem; margin: 4px 0 0 0;">Review and customize the AI-generated email before sending</p>
+        </div>
+        <form class="email-form">
+            <div class="form-group">
+                <label class="form-label">To:</label>
+                <input type="text" class="form-input" id="emailTo" readonly>
+            </div>
+            <div class="form-group">
+                <label class="form-label">CC:</label>
+                <input type="text" class="form-input" id="emailCc" placeholder="Add recipients...">
+            </div>
+            <div class="form-group">
+                <label class="form-label">BCC:</label>
+                <input type="text" class="form-input" id="emailBcc" placeholder="Add recipients...">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Subject:</label>
+                <input type="text" class="form-input" id="emailSubject">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email Body:</label>
+                <textarea class="form-input form-textarea" id="emailBody"></textarea>
+            </div>
+        </form>
+        <div class="email-footer">
+            <button class="ai-badge" id="regenerateBtn" style="cursor: pointer; border: 1px solid var(--db-accent-teal);" onclick="regenerateEmail()">
+                <i class="fas fa-sync"></i> AI Rewrite
+            </button>
+            <button class="cancel-button" onclick="closeEmailModal()">Cancel</button>
+            <button class="send-button" onclick="sendEmail()"><i class="fas fa-paper-plane"></i> Send Email</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Hide loading after timeout as fallback
+    setTimeout(function() {
+        var loader = document.getElementById('loadingOverlay');
+        if (loader) loader.style.display = 'none';
+    }, 5000);
+
+    // Remove the resize handler - let CSS handle the sizing
+    // The iframe will maintain 100% width of its container
+
+    // Store current action context
+    let currentAction = null;
+    let rewriteCount = 0;
+
+    // Load real data when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadUnpaidInvoices();
+        loadTEOutliers();
+    });
+
+    // Load unpaid invoices from database
+    async function loadUnpaidInvoices() {
+        try {
+            const response = await fetch('/api/unpaid-invoices');
+            const result = await response.json();
+
+            const tbody = document.getElementById('invoicesTableBody');
+            tbody.innerHTML = '';
+
+            result.data.forEach(invoice => {
+                const row = document.createElement('tr');
+                const overdueSeverity = invoice.days_overdue > 90 ? 'overdue-high' :
+                                       invoice.days_overdue > 60 ? 'overdue-medium' : 'overdue-low';
+
+                row.innerHTML = `
+                    <td>${invoice.project}</td>
+                    <td>$${invoice.amount.toLocaleString()}</td>
+                    <td>${new Date(Date.now() - invoice.days_overdue * 86400000).toISOString().split('T')[0]}</td>
+                    <td class="${overdueSeverity}">${invoice.days_overdue} days</td>
+                    <td>
+                        <button class="action-button"
+                                onclick='initiateCollection(${JSON.stringify(invoice).replace(/'/g, "&#39;")})'>Collection Nudge</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('Error loading unpaid invoices:', error);
+        }
+    }
+
+    // Load T&E outliers from database
+    async function loadTEOutliers() {
+        try {
+            const response = await fetch('/api/te-outliers');
+            const result = await response.json();
+
+            const tbody = document.getElementById('outliersTableBody');
+            tbody.innerHTML = '';
+
+            result.data.forEach(outlier => {
+                const row = document.createElement('tr');
+                const expenseSeverity = outlier.percentage > 8 ? 'expense-high' :
+                                       outlier.percentage > 7 ? 'expense-medium' : '';
+
+                row.innerHTML = `
+                    <td>${outlier.client}</td>
+                    <td>$${outlier.expense.toLocaleString()}</td>
+                    <td class="${expenseSeverity}">${outlier.percentage}%</td>
+                    <td>${outlier.partner}</td>
+                    <td>
+                        <button class="action-button"
+                                onclick='initiateNotification(${JSON.stringify(outlier).replace(/'/g, "&#39;")})'>Send Notification</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('Error loading T&E outliers:', error);
+        }
+    }
+
+    // Collection Nudge Handler
+    function initiateCollection(invoiceData) {
+        // Handle both old format (multiple params) and new format (object)
+        if (typeof invoiceData === 'object') {
+            currentAction = {
+                type: 'collection',
+                client: invoiceData.client,
+                project: invoiceData.project,
+                invoice: invoiceData.project,  // Use project as invoice identifier
+                partner: invoiceData.partner,
+                amount: invoiceData.amount,
+                daysOverdue: invoiceData.days_overdue,
+                priority: invoiceData.priority,
+                action: invoiceData.action
+            };
+        } else {
+            // Legacy format support
+            currentAction = {
+                type: 'collection',
+                invoice: invoiceData,
+                partner: arguments[1],
+                amount: arguments[2],
+                daysOverdue: arguments[3]
+            };
+        }
+
+        // Generate and show email
+        generateEmail('collection');
+    }
+
+    // T&E Notification Handler
+    function initiateNotification(outlierData) {
+        // Handle both old format (multiple params) and new format (object)
+        if (typeof outlierData === 'object') {
+            currentAction = {
+                type: 'notification',
+                client: outlierData.client,
+                partner: outlierData.partner,
+                expense: outlierData.expense,
+                percentage: outlierData.percentage,
+                project: outlierData.project,
+                contract_value: outlierData.contract_value,
+                action: outlierData.action
+            };
+        } else {
+            // Legacy format support
+            currentAction = {
+                type: 'notification',
+                client: outlierData,
+                partner: arguments[1],
+                expense: arguments[2],
+                percentage: arguments[3]
+            };
+        }
+
+        // Generate and show email
+        generateEmail('notification');
+    }
+
+    // Generate AI Email
+    async function generateEmail(type, isRewrite = false) {
+        const modal = document.getElementById('emailModal');
+
+        if (!isRewrite) {
+            modal.classList.add('active');
+            rewriteCount = 0;  // Reset count for new emails
+        }
+
+        // Set recipient
+        document.getElementById('emailTo').value = currentAction.partner + '@perryhomes.com';
+
+        // Show loading state with animated dots
+        document.getElementById('emailSubject').value = 'AI is crafting your subject line...';
+        document.getElementById('emailBody').value = 'AI is composing your email...\n\n⏳ This typically takes 20-30 seconds as we generate personalized, context-aware content.\n\n💡 Tip: The AI is analyzing the client data and creating a professional email tailored to your specific situation.';
+
+        // Add animated loading indicator
+        startLoadingAnimation();
+
+        console.log(`Calling /api/generate-email - Type: ${type}, Rewrite count: ${rewriteCount}`);
+
+        try {
+            const response = await fetch('/api/generate-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    type: type,
+                    context: currentAction,
+                    rewrite_count: rewriteCount
+                })
+            });
+
+            const data = await response.json();
+            console.log('Email API Response:', data);
+
+            // Stop loading animation
+            stopLoadingAnimation();
+
+            // Populate email fields
+            document.getElementById('emailSubject').value = data.subject || 'Action Required';
+            document.getElementById('emailBody').value = data.body || 'Email content generated';
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            stopLoadingAnimation();
+            // Fallback template
+            if (type === 'collection') {
+                document.getElementById('emailSubject').value = `Action Required: Overdue Invoice - ${currentAction.invoice}`;
+                document.getElementById('emailBody').value = `Dear ${currentAction.partner},
+
+I hope this email finds you well. I'm reaching out to schedule a discussion regarding financing solutions to support ${currentAction.invoice}'s potential expansion into the Florida market.
+
+Given your impressive 41% revenue growth over the past three years (from $1.7B in 2021 to $2.4B in November 2024) and your ambitious goal of reaching 5,000 annual home closings, I believe now is an opportune time to explore strategic financing options that could facilitate geographic diversification beyond your current Texas markets.
+
+With 57 years of homebuilding excellence and a strong presence across 14+ communities in Austin, DFW, Houston, and San Antonio, Perry Homes has demonstrated remarkable operational expertise. Our credit team specializes in working with established homebuilders on expansion initiatives, and we'd welcome the opportunity to discuss:
+
+• Construction and development financing structures
+• Land acquisition credit facilities
+• Working capital solutions to support multi-state operations
+• Tailored terms that align with your growth trajectory
+
+Would you be available for a call next week to explore how we can support this exciting expansion opportunity? I'm happy to work around your schedule.
+
+Best regards,
+Priya Patel
+Commercial Banker
+Agentelligence
+
+P.S. I forgot this email from you sent. I'm reaching out to schedule a discussion regarding financing solutions to support Perry Homes' potential expansion into the Florida market.`;
+            } else {
+                document.getElementById('emailSubject').value = `Florida Expansion Financing Discussion - Perry Homes`;
+                document.getElementById('emailBody').value = `Dear ${currentAction.partner},
+
+I've noticed that travel and entertainment expenses for ${currentAction.client} have reached ${currentAction.percentage}% of the contract value, exceeding our standard threshold of 6%.
+
+Current expense details:
+- Client: ${currentAction.client}
+- T&E Amount: $${currentAction.expense.toLocaleString()}
+- Percentage of Contract: ${currentAction.percentage}%
+
+Please review the detailed expense report at your earliest convenience. If these expenses are justified by project requirements, please provide documentation for our records.
+
+Best regards,
+Priya Patel
+Finance Team`;
+            }
+        }
+    }
+
+    // Regenerate email with AI
+    async function regenerateEmail() {
+        const btn = document.getElementById('regenerateBtn');
+        const originalHTML = btn.innerHTML;
+
+        // Increment rewrite count for variation
+        rewriteCount++;
+        console.log(`Regenerating email - Rewrite count: ${rewriteCount}`);
+
+        // Update button to show it's working
+        btn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Regenerating...';
+        btn.disabled = true;
+
+        // Show loading state for both subject and body
+        document.getElementById('emailSubject').value = 'Regenerating...';
+        document.getElementById('emailBody').value = 'AI is regenerating your email content...';
+
+        // Add a small delay to show the loading state
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            // Call the generate email function with isRewrite=true
+            await generateEmail(currentAction.type, true);
+        } finally {
+            // Restore button state
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    // Close email modal
+    function closeEmailModal() {
+        document.getElementById('emailModal').classList.remove('active');
+    }
+
+    // Loading animation for email generation
+    let loadingInterval;
+    let dotCount = 0;
+
+    function startLoadingAnimation() {
+        dotCount = 0;
+        const messages = [
+            '🔍 Analyzing client data',
+            '📊 Reviewing invoice details',
+            '✍️ Crafting personalized content',
+            '✨ Applying professional tone',
+            '📝 Finalizing email draft'
+        ];
+        let messageIndex = 0;
+
+        // Add loading class to disable other inputs
+        document.querySelector('.email-content').classList.add('loading');
+        document.getElementById('emailBody').classList.add('loading-indicator');
+
+        loadingInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            const dots = '.'.repeat(dotCount);
+            const spaces = '\u00A0'.repeat(3 - dotCount); // non-breaking spaces
+
+            // Update message every 5 seconds
+            if (dotCount === 0) {
+                messageIndex = (messageIndex + 1) % messages.length;
+            }
+
+            const bodyText = `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}\n\n💡 This typically takes ~10 seconds for high-quality, personalized content.`;
+            document.getElementById('emailBody').value = bodyText;
+        }, 500);
+    }
+
+    function stopLoadingAnimation() {
+        if (loadingInterval) {
+            clearInterval(loadingInterval);
+            loadingInterval = null;
+        }
+        // Remove loading classes
+        document.querySelector('.email-content').classList.remove('loading');
+        document.getElementById('emailBody').classList.remove('loading-indicator');
+    }
+
+    // Send email
+    async function sendEmail() {
+        // Here you would send the email via backend
+        alert('Email sent successfully!');
+        closeEmailModal();
+        cancelAction();
+    }
+
+    // Cancel action
+    function cancelAction() {
+        currentAction = null;
+    }
+
+    // Bulk actions (optional)
+    function sendBulkCollections() {
+        // Implement bulk send logic
+        alert('Collection nudges sent!');
+        cancelAction();
+    }
+
+    function sendBulkNotifications() {
+        // Implement bulk send logic
+        alert('Notifications sent!');
+        cancelAction();
+    }
+</script>
+{% endblock %}

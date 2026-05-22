@@ -1,0 +1,132 @@
+version: 1.1
+comment: |
+  Canonical KPI definitions for the CFO Operations Platform.
+  All measures are defined once here so Genie returns consistent values regardless
+  of how the question is phrased. Source: silver_fact_timecards joined to
+  silver_dim_employees + silver_dim_projects + silver_fact_accounts_receivable.
+
+  Column reference convention (Databricks metric views):
+    - Source table columns are referenced BARE (no table prefix).
+    - Joined table columns are referenced via the join's `name` alias (emp.*,
+      proj.*, ar.*).
+
+source: main.cfo_proserv.silver_fact_timecards
+
+joins:
+  - name: emp
+    source: main.cfo_proserv.silver_dim_employees
+    using: [employee_id]
+
+  - name: proj
+    source: main.cfo_proserv.silver_dim_projects
+    using: [project_id]
+
+  - name: ar
+    source: main.cfo_proserv.silver_fact_accounts_receivable
+    using: [project_id]
+
+dimensions:
+  - name: fiscal_period
+    expr: DATE_TRUNC('MONTH', work_date)
+    display_name: Fiscal Period (Month)
+    comment: Truncated to month-start for monthly rollups.
+
+  - name: region
+    expr: COALESCE(proj.region, 'Unknown')
+    display_name: Region
+
+  - name: practice_area
+    expr: COALESCE(proj.practice_area, 'Unknown')
+    display_name: Practice Area
+
+  - name: location
+    expr: COALESCE(proj.location, 'Unknown')
+    display_name: Office Location
+
+  - name: industry
+    expr: COALESCE(proj.industry, 'Unknown')
+    display_name: Industry Vertical
+
+  - name: job_level
+    expr: emp.job_level
+    display_name: Job Level
+    synonyms: ['level', 'rank', 'title_tier']
+
+measures:
+  - name: total_billable_revenue
+    expr: SUM(CASE WHEN time_type_clean = 'Billable' THEN billing_amount ELSE 0 END)
+    display_name: Total Billable Revenue
+    comment: |
+      SUM of billing_amount where time entry is Billable. This is the canonical
+      revenue figure for partner economics, utilization-based revenue, and
+      practice-area revenue rollups.
+    synonyms: ['revenue', 'billable revenue', 'gross billings']
+
+  - name: billable_hours
+    expr: SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END)
+    display_name: Billable Hours
+    synonyms: ['billed hours', 'chargeable hours']
+
+  - name: total_hours
+    expr: SUM(hours_worked)
+    display_name: Total Hours Logged
+    synonyms: ['all hours', 'worked hours']
+
+  - name: strict_partner_count
+    expr: COUNT(DISTINCT CASE WHEN emp.job_level = 'Partner' AND emp.employment_status = 'Active' THEN emp.employee_id END)
+    display_name: Strict Partner Count
+    comment: |
+      Canonical "partner count" — strict job_level='Partner', employment_status='Active'.
+      Excludes Senior Partner, Associate Partner, Director, Engagement Manager.
+      Use this denominator for revenue-per-partner. NEVER count all senior staff
+      as partners — that inflates the count.
+    synonyms: ['active partners', 'partner headcount']
+
+  - name: revenue_per_partner
+    expr: |
+      CASE WHEN COUNT(DISTINCT CASE WHEN emp.job_level = 'Partner' AND emp.employment_status = 'Active' THEN emp.employee_id END) > 0
+        THEN SUM(CASE WHEN time_type_clean = 'Billable' THEN billing_amount ELSE 0 END)
+             / COUNT(DISTINCT CASE WHEN emp.job_level = 'Partner' AND emp.employment_status = 'Active' THEN emp.employee_id END)
+        ELSE 0
+      END
+    display_name: Revenue per Partner
+    comment: |
+      Total billable revenue / strict partner count. Canonical RPP formula.
+      Matches the Admin Overview dashboard's "Revenue per Partner" tile.
+      When the question is annualized, multiply by 12.
+    synonyms: ['RPP', 'partner economics', 'revenue per partner']
+
+  - name: utilization_rate
+    expr: |
+      CASE WHEN SUM(hours_worked) > 0
+        THEN SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END)
+             / SUM(hours_worked) * 100
+        ELSE 0
+      END
+    display_name: Utilization Rate (%)
+    comment: |
+      Billable hours / total hours, expressed as percentage 0-100. Industry
+      target for elite consulting: 60-75%. Under 50% signals capacity slack;
+      over 85% signals burnout / overruns.
+    synonyms: ['util', 'billable utilization', 'chargeable rate']
+
+  - name: dso
+    expr: AVG(CASE WHEN ar.payment_status NOT IN ('Paid', 'Closed') THEN ar.days_outstanding END)
+    display_name: Days Sales Outstanding (DSO)
+    comment: |
+      Average days_outstanding over UNPAID invoices (payment_status NOT IN
+      ('Paid', 'Closed')). The shipped instructions describe DSO as
+      `AVG(days_outstanding)` on unpaid invoices.
+    synonyms: ['days sales outstanding', 'collection days', 'AR aging']
+
+  - name: avg_billing_rate
+    expr: |
+      CASE WHEN SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END) > 0
+        THEN SUM(CASE WHEN time_type_clean = 'Billable' THEN billing_amount ELSE 0 END)
+             / SUM(CASE WHEN time_type_clean = 'Billable' THEN hours_worked ELSE 0 END)
+        ELSE 0
+      END
+    display_name: Average Billing Rate ($/hr)
+    comment: |
+      Billable revenue / billable hours. Always per-hour, never per-timecard.
+    synonyms: ['hourly rate', 'realized rate', 'bill rate']
