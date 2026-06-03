@@ -4,7 +4,7 @@ A Databricks Asset Bundle that deploys a CFO Operations Platform demo: synthetic
 
 This guide takes you from `git clone` to a working demo running on **your** real data.
 
-> **Bundle code lives in `cfo-app-light-working/`.** All `./deploy.sh ...` commands below assume you're inside that folder — `cd cfo-app-light-working` before running them. The sibling folder `cfo-app-code-clean/` is a legacy dark-theme reference; ignore unless you specifically need the dark-theme version.
+> **Bundle code lives in `cfo-app-light-working/`.** All `./deploy.sh ...` commands below assume you're inside that folder — `cd cfo-app-light-working` before running them.
 
 ---
 
@@ -124,16 +124,28 @@ Open the customer-mapping notebook in the workspace UI:
 /Workspace/Users/<you>/cfo-app/files/genie_insights/customer_mapping.py
 ```
 
-Run it top-to-bottom:
+**Prerequisite:** the notebook calls two model endpoints through the AI Gateway — `databricks-bge-large-en` (embeddings) and `databricks-claude-opus-4-7` (rerank). Both must be enabled in your workspace. If AI Gateway is a Beta you opt into, turn it on in the admin console first.
 
-1. **Set widgets** at the top. `CFO_CUSTOMER_SOURCES` = your real `catalog.schema`. For data spread across multiple catalogs (e.g. Workday in one catalog, SAP in another), use a semicolon-separated list:
+### How the mapping works
+
+It maps your raw columns to the demo's load-bearing bronze schema (15 tables / 126 columns — only the columns the app actually needs). For each demo column it runs three steps:
+
+1. **Exact / lexical name match** — an exact column-name twin is boosted so it leads the candidates.
+2. **Semantic similarity** — both sides are embedded from the same shape (`name + type + description + sample values`), so a column matches on meaning and value-shape even when it's named differently or has no description.
+3. **LLM rerank** — Claude makes the final pick from the top candidates and assigns a confidence + rationale.
+
+It **auto-maps only what it's confident about** (high confidence, from the table's primary source). Everything uncertain — lower confidence, a column sourced from a different table, a derived value, or no match at all — is **flagged for your review** rather than silently wired up. A wrong silent mapping shows nonsense numbers in the app; a flagged one is recoverable.
+
+### Run it top-to-bottom
+
+1. **Set widgets.** `CFO_CUSTOMER_SOURCES` = your real `catalog.schema`. For data spread across multiple catalogs (e.g. Workday in one catalog, SAP in another), use a semicolon-separated list:
    ```
    workday_catalog.hr_schema;sap_catalog.finance_schema;sfdc_catalog.crm_schema
    ```
-   The notebook profiles the union and emits views that pull from each source catalog as needed.
-2. **Run cells 1-6.** This profiles your schema, embeds columns, recall-matches against the bundle's expected bronze shape, has Claude rerank candidates, and writes `mappings.yaml` + `gaps.md` to workspace files.
-3. **Review `mappings.yaml`.** For each column, confirm or correct the proposed source mapping. Cross-reference `gaps.md` for prioritized to-dos.
-4. **Run the apply cell.** Set the `CFO_MAPPINGS_FILE` widget to the path of your edited YAML, then execute. This creates `bronze_*` VIEWS in `<your-catalog>.cfo_demo` that project your real data into the shape the bundle expects.
+   The notebook profiles the union and emits views that pull from each source catalog as needed. `CFO_TARGET_SCHEMA` must be a new/empty schema (≠ your sources, ≠ the demo).
+2. **Run Steps 1–6.** Profiles your schema, embeds + recall-matches against the demo's bronze shape, has Claude rerank, and writes `mappings.yaml` + a source-organized `gaps.md` to workspace files.
+3. **Review.** Open `gaps.md` first (everything we're unsure about, grouped by source system), then open `mappings.yaml` and **search `⚠️`**. For each flagged column: confirm or fix `source_column` (the `rationale` + `alternatives` explain the pick), then **delete its `action:` line** to mark it reviewed. If a column is flagged as coming from a *different table*, either add a `joins:` block (same entity) or treat it as a gap.
+4. **Run Step 7 (Apply).** Builds `bronze_*` VIEWS in `<your-catalog>.cfo_demo`. It will **not** build while anything is unresolved — it names what's left. To stand the app up now with the unresolved columns left **blank** (NULL, never a guess), set the `CFO_ALLOW_GAPS` widget to `true`.
 
 What you have after this: a new schema `<your-catalog>.cfo_demo` containing bronze views over your real data. Silver and gold tables do not exist yet — Step 3 builds them.
 
@@ -162,6 +174,8 @@ Two new flags:
 - `--refresh-data`: triggers `cfo_data_pipeline` to rebuild silver and gold tables on top of your bronze views, then regenerates the chip pre-cache against your real data.
 
 Find `--genie-space-id` in the workspace UI: Genie → your space → URL contains the ID. (Omitting it also works — the script falls back to title lookup.)
+
+This is an **incremental** deploy — it repoints the app (`CFO_SCHEMA`) and the Genie space at `cfo_demo` and runs the pipeline on your views. It does not rebuild infrastructure from scratch.
 
 Wall-clock: 30 min. App, dashboards, and Genie now point at `<your-catalog>.cfo_demo` and serve your real data.
 
