@@ -200,7 +200,7 @@ JOB_LEVEL_WEIGHTS = [0.20, 0.22, 0.20, 0.15, 0.12, 0.06, 0.05]
 BILLING_RATES = {
     # Doubled vs original — required to land firmwide annual revenue at $16.2B
     # (was producing ~$9B with old rates). Realistic for elite consulting:
-    # Big 4 / McKinsey partners bill $2-3K/hr, mid-levels $1-2K, junior $500-900.
+    # Big 4 / top-tier strategy partners bill $2-3K/hr, mid-levels $1-2K, junior $500-900.
     "Business Analyst": 700.0, "Associate": 950.0, "Engagement Manager": 1300.0,
     "Associate Partner": 1700.0, "Partner": 2200.0, "Senior Partner": 3000.0, "Director": 1500.0,
 }
@@ -211,9 +211,14 @@ COST_RATES = {
     "Associate Partner": 1000.0, "Partner": 1300.0, "Senior Partner": 1800.0, "Director": 850.0,
 }
 
-# --- Date range (dynamic: always 3 years ending at today) ---
-# Re-running this notebook on a schedule (e.g., monthly) keeps the demo current automatically.
-DATE_END = date.today()
+# --- Date range (fixed anchor so the synthetic data is reproducible) ---
+# ANCHOR_DATE is the demo's "as of" date. It must be fixed, NOT date.today(): with a
+# fixed anchor + random.seed above, the dataset is byte-identical on every run and on
+# every machine, so the engineered outliers (T&E >6%, aged AR) always land inside the
+# app's filter windows. date.today() would slide the window per run-day and silently
+# push outliers out of range (Active→Expired, scores below threshold) → blank tiles.
+ANCHOR_DATE = date(2026, 5, 17)
+DATE_END = ANCHOR_DATE
 DATE_START = DATE_END.replace(year=DATE_END.year - 3, day=1)
 
 # --- Department categories ---
@@ -1257,7 +1262,7 @@ for i in range(2500):
     start = rand_date()
     term = random.choice([6, 12, 18, 24, 36])
     end = start + timedelta(days=term * 30)
-    status = "Active" if end > date.today() else "Expired"
+    status = "Active" if end > DATE_END else "Expired"
     tcv = round(random.uniform(1_000_000, 50_000_000), 2)
 
     contract_rows.append((
