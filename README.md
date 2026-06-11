@@ -10,9 +10,9 @@ This guide takes you from `git clone` to a working demo running on **your** real
 
 ## Architecture
 
-Once your source data is in Databricks, `customer_mapping.py` builds `bronze_*` views over it (into `<your-catalog>.cfo_demo`); the bundle's pipeline then builds `silver_*` / `gold_*` tables that feed the Genie space, dashboards, and app.
+Once your source data is available in Databricks, `customer_mapping.py` builds `bronze_*` views over it (into `<your-catalog>.cfo_demo`); the bundle's pipeline then builds `silver_*` / `gold_*` tables that feed the Genie space, dashboards, and app.
 
-Bronze adds no extra copy — it's views over tables you already have. Getting your source systems (SAP, Salesforce, Workday, T&E) into Databricks in the first place is a separate prerequisite, handled by your own ingestion — not by this bundle.
+Bronze adds no extra copy — it's views over tables you already have. Your source systems (SAP, Salesforce, Workday, T&E) do need to be reachable from Databricks first — whether by ingestion, Lakehouse Federation, or Delta Sharing (e.g. the Databricks–SAP partnership), not necessarily a bulk migration — but that's outside this bundle's scope.
 
 ---
 
