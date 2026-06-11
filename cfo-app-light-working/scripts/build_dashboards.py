@@ -43,6 +43,19 @@ def build_one(src: Path, out: Path, target_catalog: str, target_schema: str) -> 
     target_fqn = f"{target_catalog}.{target_schema}"
     new_text, n = re.subn(re.escape(SOURCE_FQN_LITERAL), target_fqn, text)
 
+    # Anchor wall-clock CURRENT_DATE() to the dataset's own as-of date. The demo
+    # data is a FROZEN snapshot; with CURRENT_DATE() the dashboards' "last 6
+    # months" windows and "latest month" KPI tiles drift into the partial
+    # in-progress month, cratering the trend charts (~-50% false drop) and
+    # doubling DSO. We replace it with a data-derived scalar subquery
+    # (MAX(work_date)) so every environment — demo or customer — anchors to its
+    # own latest data, with no hardcoded date. Lambda repl avoids re.sub escape
+    # handling; the subquery has no quotes/braces so JSON stays valid.
+    as_of_sql = f"(SELECT MAX(work_date) FROM {target_fqn}.silver_fact_timecards)"
+    new_text, n_dates = re.subn(r"CURRENT_DATE\(\)", lambda _m: as_of_sql, new_text)
+    if n_dates:
+        print(f"    {src.name}: anchored {n_dates} CURRENT_DATE() -> data as-of subquery")
+
     # Sanity: result should still parse as valid JSON
     try:
         json.loads(new_text)

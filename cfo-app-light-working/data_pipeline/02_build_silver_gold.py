@@ -982,6 +982,19 @@ JOIN _top_te_projects tp ON exp.project_id = tp.project_id
 WHERE exp.expense_category_business = 'Billable'
 """).collect()[0]["n"]
 print(f"T&E outlier engineering applied — 8 mid-sized projects scaled to 6.5-9.5% T&E:contract ratio ({n_boosted} expense rows touched).")
+# Capture the engineered-outlier project_ids so gold_regional_pnl can EXCLUDE them.
+# Their billable T&E was boosted to 6.5-9.5% of contract value for the Top T&E
+# Outliers audit table (which reads silver amounts ×1). The SAME rows would
+# otherwise be ×EXPENSE_SCALE'd into gold_regional_pnl.total_expenses — a single
+# ~$930K boosted row × 150 = ~$140M, which detonates an office-month P&L (this is
+# the Sydney-April-$167M bug). Excluding these 8 projects from the office rollup
+# costs only their tiny natural T&E (~$10-15K each, immaterial vs ~$560M/month);
+# the audit table still reads the boosted silver values it needs.
+_TE_OUTLIER_PROJECT_IDS = [
+    r["project_id"] for r in spark.sql("SELECT project_id FROM _top_te_projects").collect()
+    if r["project_id"] is not None
+]
+print(f"Excluding {len(_TE_OUTLIER_PROJECT_IDS)} T&E-outlier projects from regional P&L rollup: {_TE_OUTLIER_PROJECT_IDS}")
 spark.sql("DROP VIEW IF EXISTS _top_te_projects")
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1316,6 +1329,14 @@ spark.sql(f"SELECT account_category, COUNT(*) AS cnt, ROUND(SUM(net_amount), 2) 
 # COMMAND ----------
 
 # DBTITLE 1,Gold: Regional P&L
+# Exclude engineered T&E-outlier projects from the office expense rollup (see
+# _TE_OUTLIER_PROJECT_IDS above). NULL-safe: rows with no project_id (non-project
+# expenses) are kept — a bare `NOT IN` would drop them all on the NULL trap.
+if _TE_OUTLIER_PROJECT_IDS:
+    _te_excl_ids = ", ".join("'" + str(p).replace("'", "''") + "'" for p in _TE_OUTLIER_PROJECT_IDS)
+    _te_excl = f"WHERE project_id IS NULL OR project_id NOT IN ({_te_excl_ids})"
+else:
+    _te_excl = ""
 spark.sql(f"""
 CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}regional_pnl AS
 WITH revenue_by_period AS (
@@ -1391,6 +1412,7 @@ expenses_by_period AS (
         SUM(CASE WHEN expense_category_business = 'Technology' THEN budgeted_amount ELSE 0 END) * {EXPENSE_SCALE} AS budgeted_tech_expenses,
         SUM(CASE WHEN expense_category_business NOT IN ('Billable', 'Corporate', 'Marketing', 'Technology') THEN budgeted_amount ELSE 0 END) * {EXPENSE_SCALE} AS budgeted_other_expenses
     FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses
+    {_te_excl}
     GROUP BY region, location, practice_area, industry, customer, DATE_TRUNC('month', expense_date)
 ),
 planned_rev AS (

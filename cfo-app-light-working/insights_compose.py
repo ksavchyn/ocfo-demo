@@ -71,6 +71,10 @@ def _run_sql(executor: Any, query: str) -> list[list]:
     Execution API; callers apply `_f()` to coerce to float.
     """
     if _is_spark(executor):
+        # Anchor wall-clock CURRENT_DATE() to the frozen dataset's as-of date.
+        if "CURRENT_DATE()" in query:
+            import demo_anchor
+            query = demo_anchor.anchor(query, demo_anchor.as_of_via_spark(executor, SCHEMA_FQN))
         df = executor.sql(query)
         return [list(r) for r in df.collect()]
     # WorkspaceClient path
@@ -79,6 +83,10 @@ def _run_sql(executor: Any, query: str) -> list[list]:
         raise RuntimeError(
             "No SQL warehouse configured. Set SQL_WAREHOUSE_ID or CFO_WAREHOUSE_ID."
         )
+    # Anchor wall-clock CURRENT_DATE() to the frozen dataset's as-of date.
+    if "CURRENT_DATE()" in query:
+        import demo_anchor
+        query = demo_anchor.anchor(query, demo_anchor.as_of_via_statement(executor, wid, SCHEMA_FQN))
     r = executor.statement_execution.execute_statement(
         warehouse_id=wid, statement=query, wait_timeout="50s",
     )
@@ -308,43 +316,38 @@ def pull_finance_data(executor: Any, filters: Optional[dict] = None) -> dict:
     """Finance (Finance Director) firmwide KPIs + supporting drill-downs."""
     fc = _build_filter_clause(filters)
 
-    # DSO — current from silver (correct, snapshot semantics), prior from
-    # gold_ar_snapshot_aging. Replaces the shift-back-30-days hack which
-    # produced 30-50 day false "improvements" once per-customer payment
-    # archetypes populated real aged AR (chronic clients pulled the
-    # subset-of-aged-invoices average way up vs the firmwide average).
-    #
-    # snapshot table doesn't carry practice_area / industry. When the chip is
-    # scoped to one of those, we fall back to "prior = current" (delta = 0)
-    # rather than fabricate a baseline.
-    dso_current_row = _run_sql(executor, f"""
-        SELECT
-          ROUND(AVG(CASE WHEN payment_status NOT IN ('Paid','Closed') THEN days_outstanding END), 1) AS dso
-        FROM {SCHEMA_FQN}.silver_fact_accounts_receivable
-        WHERE 1=1{fc}
-    """)[0]
-    dso_current = dso_current_row[0]
-    if _has_snapshot_incompatible_filter(filters):
-        prior_dso = dso_current
-    else:
-        snap_fc = _build_snapshot_filter_clause(filters)
-        prior_row = _run_sql(executor, f"""
-            WITH per_snap AS (
-              SELECT snapshot_date,
-                ROUND(SUM(open_ar_balance * weighted_dso_days)
-                      / NULLIF(SUM(open_ar_balance), 0), 1) AS dso
-              FROM {SCHEMA_FQN}.gold_ar_snapshot_aging
-              WHERE snapshot_date < LAST_DAY(CURRENT_DATE()){snap_fc}
-              GROUP BY snapshot_date
-            ),
-            ranked AS (
-              SELECT *, ROW_NUMBER() OVER (ORDER BY snapshot_date DESC) AS rn
-              FROM per_snap
-            )
-            SELECT MAX(CASE WHEN rn = 2 THEN dso END) AS prior_dso
-            FROM ranked WHERE rn <= 2
-        """)
-        prior_dso = (prior_row[0][0] if prior_row and prior_row[0] else None) or dso_current
+    # DSO — current AND prior BOTH from the canonical month-end snapshot
+    # (gold_ar_snapshot_aging, amount-weighted firmwide DSO), anchored to the
+    # data's own as-of so we use the last COMPLETE month and compute the prior
+    # the SAME way. This replaces the prior mix (current = AVG(days_outstanding)
+    # projection ≈ 55d; prior = snapshot ≈ 35d), which manufactured a fake ~20-day
+    # MoM "deterioration" and disagreed with the dashboard tile. Using one method
+    # for both periods yields the real, stable ~34-35d DSO that matches the
+    # dashboard. Anchored to MAX(work_date) (NOT CURRENT_DATE) so the partial
+    # in-progress month is excluded. Snapshot table lacks practice_area/industry,
+    # so for those filters we fall back to the firmwide snapshot.
+    snap_fc = "" if _has_snapshot_incompatible_filter(filters) else _build_snapshot_filter_clause(filters)
+    dso_rows = _run_sql(executor, f"""
+        WITH per_snap AS (
+          SELECT snapshot_date,
+            ROUND(SUM(open_ar_balance * weighted_dso_days)
+                  / NULLIF(SUM(open_ar_balance), 0), 1) AS dso
+          FROM {SCHEMA_FQN}.gold_ar_snapshot_aging
+          WHERE snapshot_date < DATE_TRUNC('MONTH',
+                  (SELECT MAX(work_date) FROM {SCHEMA_FQN}.silver_fact_timecards)){snap_fc}
+          GROUP BY snapshot_date
+        ),
+        ranked AS (
+          SELECT *, ROW_NUMBER() OVER (ORDER BY snapshot_date DESC) AS rn FROM per_snap
+        )
+        SELECT MAX(CASE WHEN rn = 1 THEN dso END) AS current_dso,
+               MAX(CASE WHEN rn = 2 THEN dso END) AS prior_dso
+        FROM ranked WHERE rn <= 2
+    """)
+    _cur = (dso_rows[0][0] if dso_rows and dso_rows[0] else None)
+    _pri = (dso_rows[0][1] if dso_rows and dso_rows[0] else None)
+    dso_current = _cur if _cur is not None else 0.0
+    prior_dso = _pri if _pri is not None else dso_current
     dso = (dso_current, prior_dso)
 
     # silver_fact_accounts_payable also carries all 5 axes.

@@ -88,10 +88,44 @@ def _split_md_sections(md_text: str) -> dict[str, str]:
     return sections
 
 
+# As-of date for the FROZEN demo snapshot. The dataset is pinned to the
+# generator's ANCHOR_DATE; Genie must anchor every time-relative query to this
+# date, NOT wall-clock CURRENT_DATE() — once real calendar time passes the
+# anchor, CURRENT_DATE() points at months the frozen data only partially
+# contains and answers collapse to implausible numbers. Resolved from the data
+# at provision time by _resolve_as_of(); env CFO_AS_OF_DATE overrides; the
+# fallback literal matches the shipped ANCHOR_DATE.
+_AS_OF_DATE = os.environ.get("CFO_AS_OF_DATE", "2026-05-15")
+
+
+def _resolve_as_of(client: WorkspaceClient, warehouse_id: str, schema_fqn: str) -> str:
+    """Set the module-level _AS_OF_DATE from the data (MAX(work_date)). Memoized
+    via the global; safe to call once per provision run."""
+    global _AS_OF_DATE
+    try:
+        r = client.statement_execution.execute_statement(
+            warehouse_id=warehouse_id,
+            statement=f"SELECT CAST(MAX(work_date) AS STRING) FROM {schema_fqn}.silver_fact_timecards",
+            wait_timeout="30s",
+        )
+        if r.result and r.result.data_array and r.result.data_array[0] and r.result.data_array[0][0]:
+            _AS_OF_DATE = str(r.result.data_array[0][0])[:10]
+    except Exception as e:
+        print(f"[bootstrap] as-of resolve failed; using {_AS_OF_DATE}. {e}")
+    print(f"[bootstrap] Genie as-of date = {_AS_OF_DATE} (CURRENT_DATE() rewritten to this)")
+    return _AS_OF_DATE
+
+
 def _rewrite_schema_in_text(text: str, schema_override: str | None) -> str:
-    """If schema_override is set, replace `main.cfo_proserv.` with `<override>.`
-    in any text string (instructions markdown, trusted query SQL, etc).
+    """Post-process Genie config text (instructions markdown, trusted-query SQL,
+    snippet SQL). Two rewrites:
+      1. Anchor wall-clock CURRENT_DATE() -> DATE('<as-of>') so Genie's SQL stays
+         aligned with the frozen dataset (see _AS_OF_DATE above).
+      2. If schema_override is set, repoint `main.cfo_proserv.` -> `<override>.`
+         so a customer's deployed space targets their own catalog/schema.
     """
+    if text and "CURRENT_DATE()" in text:
+        text = text.replace("CURRENT_DATE()", f"DATE('{_AS_OF_DATE}')")
     if not schema_override:
         return text
     return text.replace("main.cfo_proserv.", f"{schema_override}.").replace(
@@ -750,6 +784,11 @@ def provision(
     if schema_override:
         print(f"  Schema override: {schema_override} (replaces main.cfo_proserv)")
     print("=" * 60)
+
+    # Resolve the frozen dataset's as-of date so every CURRENT_DATE() in the
+    # instructions/trusted-queries/snippets gets rewritten to a fixed literal
+    # (see _resolve_as_of / _rewrite_schema_in_text). Must run before any build_*.
+    _resolve_as_of(client, warehouse_id, schema_override or "main.cfo_proserv")
 
     # Two distinct surfaces per Databricks Genie best practices:
     #   description          — short user-facing room intro (About tab, for humans)

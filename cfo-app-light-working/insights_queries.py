@@ -36,6 +36,10 @@ def execute_query(query: str) -> List[Dict[str, Any]]:
     """Execute a SQL query and return results as list of dicts."""
     try:
         workspace_client = get_workspace_client()
+        # Anchor wall-clock CURRENT_DATE() to the frozen dataset's as-of date.
+        if "CURRENT_DATE()" in query:
+            import demo_anchor
+            query = demo_anchor.anchor(query, demo_anchor.as_of_via_statement(workspace_client, SQL_WAREHOUSE_ID, SCHEMA))
         logger.info(f"Executing query on warehouse {SQL_WAREHOUSE_ID}")
         result = workspace_client.statement_execution.execute_statement(
             warehouse_id=SQL_WAREHOUSE_ID,

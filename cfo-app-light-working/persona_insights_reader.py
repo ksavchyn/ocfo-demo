@@ -106,6 +106,10 @@ def _execute_select(query_template: str, parameters=None, columns=None):
         warehouse_id = os.environ.get("SQL_WAREHOUSE_ID", "")
         if not warehouse_id:
             raise RuntimeError("SQL_WAREHOUSE_ID env var not set — bundle's apps.config.env should populate it at deploy time.")
+        # Anchor wall-clock CURRENT_DATE() to the frozen dataset's as-of date.
+        if "CURRENT_DATE()" in query:
+            import demo_anchor
+            query = demo_anchor.anchor(query, demo_anchor.as_of_via_statement(client, warehouse_id, f"{CATALOG}.{SCHEMA}"))
         compact_query = " ".join(query.split())
         logger.info(f"[persona_insights_reader] EXEC warehouse={warehouse_id} table={TABLE} query={compact_query[:300]}")
         res = client.statement_execution.execute_statement(

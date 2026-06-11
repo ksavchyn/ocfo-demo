@@ -220,6 +220,12 @@ def execute_sql_query(query):
     try:
         app_logger.info(f"[SQL] Submitting query to warehouse")
 
+        # Anchor wall-clock CURRENT_DATE() to the frozen dataset's as-of date.
+        if "CURRENT_DATE()" in query:
+            import demo_anchor
+            _schema_fqn = os.environ.get('CFO_SCHEMA', 'main.cfo_proserv')
+            query = demo_anchor.anchor(query, demo_anchor.as_of_via_statement(workspace_client, warehouse_id, _schema_fqn))
+
         # Execute statement and wait for results (following insights_queries.py pattern)
         result = workspace_client.statement_execution.execute_statement(
             warehouse_id=warehouse_id,

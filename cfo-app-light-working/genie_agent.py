@@ -290,6 +290,70 @@ def _get_genie_session():
 workspace_client = WorkspaceClient()
 host = workspace_client.config.host
 
+
+# ---------------------------------------------------------------------------
+# Demo as-of date anchor — the dataset is a FROZEN snapshot. Genie's own clock
+# says "now" is the real calendar month, so a sub-query phrased "last 6 complete
+# fiscal months" drifts into the partial in-progress month (a ~−50% false-drop
+# row, e.g. the Sydney/May artifact). We pin the orchestrator to the data's
+# actual as-of so decomposition names the real last-complete month and synthesis
+# quarantines the partial one. Computed once from the data, memoized.
+# ---------------------------------------------------------------------------
+_DATE_ANCHOR_CACHE: dict = {}
+_MONTHS = ["January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December"]
+
+
+def _demo_date_context() -> dict:
+    if "ctx" in _DATE_ANCHOR_CACHE:
+        return _DATE_ANCHOR_CACHE["ctx"]
+    from datetime import date
+    as_of_str = "2026-05-15"  # fallback matches generator ANCHOR_DATE
+    try:
+        import demo_anchor
+        wid = os.environ.get("SQL_WAREHOUSE_ID", "")
+        if wid:
+            as_of_str = demo_anchor.as_of_via_statement(workspace_client, wid, SCHEMA)
+    except Exception as e:
+        logger.warning(f"[date-anchor] as-of lookup failed, using fallback {as_of_str}: {e}")
+    y, m = int(as_of_str[:4]), int(as_of_str[5:7])
+    lc_y, lc_m = (y, m - 1) if m > 1 else (y - 1, 12)  # last COMPLETE month = month before in-progress
+    ctx = {
+        "as_of": as_of_str[:10],
+        "lc_label": f"{_MONTHS[lc_m - 1]} {lc_y}",
+        "lc_date": date(lc_y, lc_m, 1).isoformat(),
+        "ip_label": f"{_MONTHS[m - 1]} {y}",
+        "ip_date": date(y, m, 1).isoformat(),
+    }
+    _DATE_ANCHOR_CACHE["ctx"] = ctx
+    return ctx
+
+
+def _date_anchor_block() -> str:
+    """For the DECOMPOSE prompt — tells the planner to name the real end month."""
+    c = _demo_date_context()
+    return (
+        f"DATE ANCHOR — this dataset is a STATIC snapshot; treat {c['as_of']} as 'today'.\n"
+        f"- The most recent COMPLETE fiscal month is {c['lc_label']} ({c['lc_date']}).\n"
+        f"- {c['ip_label']} ({c['ip_date']}) is a PARTIAL, in-progress close — NEVER reference it; "
+        f"it reads as a ~50% false drop.\n"
+        f"- Phrase every trailing window to END at {c['lc_label']} and NAME it explicitly "
+        f"(e.g. \"the 6 complete fiscal months ending {c['lc_label']}\"). A bare \"last N months\" "
+        f"makes Genie drift into the partial month — always name the end month."
+    )
+
+
+def _date_anchor_block_for_synthesis() -> str:
+    """For the SYNTHESIS prompt — quarantines the partial month if it slips through."""
+    c = _demo_date_context()
+    return (
+        f"DATE ANCHOR (read first): the most recent COMPLETE fiscal month is {c['lc_label']}. "
+        f"{c['ip_label']} is a PARTIAL, in-progress close. If any sub-query result includes "
+        f"{c['ip_label']}, EXCLUDE that row from every table, trend, total, and average, and do "
+        f"NOT mention it or the close being incomplete. Anchor every \"latest\"/\"current\"/\"most "
+        f"recent month\" statement on {c['lc_label']}."
+    )
+
 def _get_token() -> str:
     """Fetch a fresh token per call so the SDK manages OAuth M2M refresh.
     No hand-rolled cache — same pattern as _call_llm. Prevents stale-token 403s
@@ -894,6 +958,7 @@ def _generate_claude_followups(user_question: str, answer_text: str, n: int = 2,
     if not answer_text or len(answer_text) < 50:
         return []
 
+    _dc = _demo_date_context()
     history_block = ""
     if history:
         # Render the last few turns as a compact transcript so Claude can pick up
@@ -939,6 +1004,9 @@ def _generate_claude_followups(user_question: str, answer_text: str, n: int = 2,
         f"• REQUIRED: drill-down questions stay within the SAME data slice the answer already "
         f"used. If the answer broke a metric down by region, follow-ups should drill into a "
         f"specific region's row — not pivot to a different metric or aggregation grain.\n"
+        f"• REQUIRED: this dataset is a STATIC snapshot — the most recent COMPLETE fiscal month is "
+        f"{_dc['lc_label']}. NEVER reference {_dc['ip_label']} (a partial, in-progress month) or any "
+        f"date after {_dc['lc_label']} in a follow-up; anchor every period reference on or before {_dc['lc_label']}.\n"
         f"• AVOID follow-ups that probe a number the answer itself caveated (look for phrases like "
         f"'could not reconcile', 'data limitation', 'unverified', 'should be validated', "
         f"'sub-query returned no rows', 'reconciliation note', 'not directly in the regional "
@@ -1176,6 +1244,39 @@ def _build_sub_results_block(sub_results: list[dict]) -> str:
     return "\n".join(parts)
 
 
+# Placeholder phrases that must NEVER reach the user: they signal a value the
+# model tried to paper over instead of dropping. The synthesis prompt bans them,
+# but the LLM occasionally still emits them in table cells (e.g. a prior-period
+# column where some rows have no value). Detecting them here forces the same
+# corrective retry used for arithmetic errors — which drops the column/rows.
+_BANNED_TABLE_PLACEHOLDERS = (
+    "intermediate aggregation",
+    "not shown in displayed table",
+    "intermediate values not displayed",
+    "intermediate value, not displayed",
+    "not reportable from the available join",
+)
+
+
+def _find_banned_placeholders(text: str) -> list:
+    if not text:
+        return []
+    low = text.lower()
+    hits = [p for p in _BANNED_TABLE_PLACEHOLDERS if p in low]
+    if not hits:
+        return []
+    return [{
+        "type": "banned_placeholder",
+        "message": (
+            "A table contains a forbidden missing-value placeholder "
+            f"({', '.join(repr(h) for h in hits)}). A prior-period value is unavailable for some cells. "
+            "DROP the entire column (or the affected rows) that holds the missing values and keep only "
+            "columns/rows where every cell has a real figure. NEVER print placeholder text like "
+            "'(intermediate aggregation, not shown in displayed tables)' — every table cell must be a real value."
+        ),
+    }]
+
+
 def _synthesize_with_validation(prompt: str) -> str:
     """Call Opus once; run the live structural probe on the result; if any
     violations are found, fire ONE retry with a correction directive; if the
@@ -1204,6 +1305,7 @@ def _synthesize_with_validation(prompt: str) -> str:
 
     # Structural-only checks (no canonical context at live time — too slow).
     violations = find_violations_in_prose(full_text)
+    violations += _find_banned_placeholders(full_text)
     if not violations:
         return full_text
 
@@ -1232,7 +1334,7 @@ def _synthesize_with_validation(prompt: str) -> str:
         retry_text = ""
 
     if retry_text:
-        retry_violations = find_violations_in_prose(retry_text)
+        retry_violations = find_violations_in_prose(retry_text) + _find_banned_placeholders(retry_text)
         if not retry_violations:
             logger.info("[VALIDATION] retry passed all checks")
         else:
@@ -1289,6 +1391,9 @@ def _replay_with_synthesis(user_message: str, cached_payload: dict):
         user_question=user_message,
         sub_results_block=_build_sub_results_block(sub_results),
     )
+    # Quarantine the partial in-progress month so it never lands in a trend/table
+    # (prevents the ~−50% false-drop row from dominating the synthesis).
+    prompt = _date_anchor_block_for_synthesis() + "\n\n" + prompt
     # Synthesize + live structural-consistency probe. Retries once with
     # corrections if violations are found; appends a ⚠️ footer if even the
     # retry doesn't pass. See _synthesize_with_validation for details.
@@ -1373,11 +1478,13 @@ def _decompose_question_to_subqueries(user_message: str, n_max: int = 2) -> list
 The user just typed this question:
 "{user_message}"
 
+{_date_anchor_block()}
+
 Plan EXACTLY 2 focused Genie sub-questions that, together, will surface enough data for a downstream model to compose a multi-section root-cause analysis answering the user's question.
 
 Each sub-question MUST:
 - Be a single, focused investigation Genie can answer with ONE SQL query against gold tables (regional P&L by month, project profitability, employees + utilization, AR/AP aging, partner economics)
-- Reference NAMED ENTITIES + COMPLETE fiscal months only (never include the in-progress current month)
+- Reference NAMED ENTITIES + COMPLETE fiscal months only. Per the DATE ANCHOR above: the most recent complete month is the END of any trailing window — name that end month explicitly and NEVER include the partial in-progress month
 - Be GROUNDED — phrase as DATA LOOKUPS, not philosophical (e.g. "What is the monthly DSO trend for the US region over the last 6 complete fiscal months, by office?" NOT "Why is DSO struggling?")
 - Cover a DIFFERENT angle from the other (don't ask 2 versions of the same thing) — typically one direct breakdown + one supporting/explanatory cut
 - Specify the time window explicitly so Genie doesn't guess
@@ -1489,6 +1596,9 @@ def _live_multi_query_with_synthesis(user_message: str):
         user_question=user_message,
         sub_results_block=_build_sub_results_block(sub_results),
     )
+    # Quarantine the partial in-progress month so it never lands in a trend/table
+    # (prevents the ~−50% false-drop row from dominating the synthesis).
+    prompt = _date_anchor_block_for_synthesis() + "\n\n" + prompt
     # Same validation flow as the cached path — retry once on violations,
     # surface a ⚠️ footer if the retry still has problems.
     full_text = _synthesize_with_validation(prompt)

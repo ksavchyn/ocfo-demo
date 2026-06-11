@@ -264,7 +264,7 @@ fi
 #    Genie ID; the branch below triggers the job to create one.
 echo "[3/6] Bundle deploy #1 (creates/refreshes resources)..."
 build_common_vars "$GENIE_SPACE_ID"
-databricks bundle deploy --profile "$PROFILE" "${TARGET_ARGS[@]}" "${COMMON_VARS[@]}" ${FORCE_LOCK:+--force-lock}
+databricks bundle deploy --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" ${FORCE_LOCK:+--force-lock}
 echo ""
 
 # First-time-only branch: trigger the data-pipeline job, wait for the Genie
@@ -280,7 +280,7 @@ if [[ -z "$GENIE_SPACE_ID" ]]; then
   echo "═══════════════════════════════════════════════════════════"
   echo ""
 
-  FIRSTTIME_SUMMARY=$(databricks bundle summary --profile "$PROFILE" "${TARGET_ARGS[@]}" "${COMMON_VARS[@]}" -o json)
+  FIRSTTIME_SUMMARY=$(databricks bundle summary --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" -o json)
   JOB_ID=$(printf '%s' "$FIRSTTIME_SUMMARY" | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
@@ -404,7 +404,7 @@ echo ""
 # 5. Bundle deploy #2 — syncs the regenerated app.yml to the workspace so the
 #    next apps deploy will pick it up.
 echo "[5/6] Bundle deploy #2 (syncs regenerated app.yml)..."
-databricks bundle deploy --profile "$PROFILE" "${TARGET_ARGS[@]}" "${COMMON_VARS[@]}" ${FORCE_LOCK:+--force-lock}
+databricks bundle deploy --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" ${FORCE_LOCK:+--force-lock}
 echo ""
 
 # 6. Apps deploy — restarts the app from source. Reads the freshly-synced
@@ -412,7 +412,7 @@ echo ""
 #    Before deploying we ensure the app's compute is RUNNING — `apps deploy`
 #    refuses to push to a stopped app, so self-heal by starting it if needed.
 echo "[6/6] Restarting the app (databricks apps deploy)..."
-APP_SOURCE_PATH=$(databricks bundle summary --profile "$PROFILE" "${TARGET_ARGS[@]}" "${COMMON_VARS[@]}" -o json \
+APP_SOURCE_PATH=$(databricks bundle summary --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" -o json \
   | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
@@ -550,7 +550,7 @@ if [[ -n "$REFRESH_DATA" ]]; then
 
   # Resolve the job ID + workspace host once (used both for run-now and for the
   # clickable URL print below). One bundle summary call covers both.
-  REFRESH_SUMMARY=$(databricks bundle summary --profile "$PROFILE" "${TARGET_ARGS[@]}" "${COMMON_VARS[@]}" -o json)
+  REFRESH_SUMMARY=$(databricks bundle summary --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" -o json)
   REFRESH_JOB_ID=$(printf '%s' "$REFRESH_SUMMARY" | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
