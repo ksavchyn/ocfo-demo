@@ -382,13 +382,19 @@ def pull_finance_data(executor: Any, filters: Optional[dict] = None) -> dict:
         ORDER BY total_m DESC LIMIT 5
     """)
 
-    dso_by_office = _run_sql(executor, f"""
+    # 2026-07-11 FIX: this slot used to rank offices by AVG(days_outstanding)
+    # of open invoices and label it "highest DSO". Per-office avg open-invoice
+    # age clusters at ~28-29 days — BELOW the firmwide DSO KPI (~32, computed
+    # with a different formula) — so the composed narrative called sub-average
+    # offices "high-DSO" (a contradiction a CFO catches). Reframe as the AR
+    # CONCENTRATION story: rank by open AR balance; keep avg age as context.
+    ar_by_office = _run_sql(executor, f"""
         SELECT location,
-               ROUND(AVG(CASE WHEN payment_status NOT IN ('Paid','Closed') THEN days_outstanding END), 1) AS dso,
-               ROUND(SUM(CASE WHEN payment_status NOT IN ('Paid','Closed') THEN amount END)/1e6, 2) AS open_ar_m
+               ROUND(SUM(CASE WHEN payment_status NOT IN ('Paid','Closed') THEN amount END)/1e6, 2) AS open_ar_m,
+               ROUND(AVG(CASE WHEN payment_status NOT IN ('Paid','Closed') THEN days_outstanding END), 1) AS avg_open_age_days
         FROM {SCHEMA_FQN}.silver_fact_accounts_receivable
         WHERE location IS NOT NULL{fc}
-        GROUP BY location ORDER BY dso DESC LIMIT 5
+        GROUP BY location ORDER BY open_ar_m DESC LIMIT 5
     """)
 
     return {
@@ -396,7 +402,7 @@ def pull_finance_data(executor: Any, filters: Optional[dict] = None) -> dict:
         "kpi_dpo":             dict(zip(("dpo","prior_dpo"),                     [_f(x) for x in dpo])),
         "top_unpaid_clients":  top_clients,
         "top_unpaid_vendors":  top_vendors,
-        "dso_movers_by_office": dso_by_office,
+        "ar_concentration_by_office": ar_by_office,
     }
 
 
@@ -1046,8 +1052,8 @@ Top 5 unpaid clients (open AR, ranked by $):
 Top 5 unpaid vendors (open AP, ranked by $):
 {chr(10).join(f"  - {r[0]}: ${_f(r[1]):.2f}M / {int(_f(r[2]))} invoices / avg {_f(r[3]):.1f} days" for r in d['top_unpaid_vendors'])}
 
-DSO movers by office (highest DSO):
-{chr(10).join(f"  - {r[0]}: {_f(r[1]):.1f} days DSO / ${_f(r[2]):.2f}M open AR" for r in d['dso_movers_by_office'])}
+Offices with the largest open AR balances (concentration — do NOT call these "high-DSO" offices; their avg open-invoice age is context only and can sit below the firmwide DSO):
+{chr(10).join(f"  - {r[0]}: ${_f(r[1]):.2f}M open AR / avg open-invoice age {_f(r[2]):.1f} days" for r in d['ar_concentration_by_office'])}
 
 YOUR TASK: Compose 4 INSIGHTS + 3 ACTION_AREAS + 3 BOTTOM_CHIPS as a single JSON object.
 The 4 insights MUST cover: DSO, DPO, Top Unpaid Client, Top Unpaid Vendor — in that order.

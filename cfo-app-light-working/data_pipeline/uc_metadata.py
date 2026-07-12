@@ -7,7 +7,37 @@ the customer bundle deploy carries the same docs through.
 Style mirrors the gold-standard tables (gold_enterprise_metrics, gold_regional_pnl):
 1 sentence per column with units, ranges, valid values, and demo-narrative
 disambiguation when relevant. Skips self-explanatory timestamps and surrogate IDs.
+
+Narrative-month references in the descriptions below are computed from the same
+as-of anchor the pipeline notebooks use, so Genie-visible column comments stay
+in sync with the engineered beats as the anchor moves.
 """
+
+import os as _os
+from datetime import date as _date
+
+# ─── As-of anchor (must match 01_generate_bronze_data.py / 02_build_silver_gold.py) ──
+# This is a plain module (no dbutils widgets available), so it reads env only.
+# 02_build_silver_gold.py exports its widget-resolved CFO_AS_OF_MODE /
+# CFO_AS_OF_DATE into os.environ BEFORE importing this module, so both files
+# always derive the identical anchor.
+_AS_OF_MODE = _os.environ.get("CFO_AS_OF_MODE", "dynamic").strip().lower()
+if _AS_OF_MODE == "anchored":
+    _ANCHOR_DATE = _date.fromisoformat(_os.environ.get("CFO_AS_OF_DATE") or "2026-05-17")
+else:
+    _ANCHOR_DATE = _date.today()
+
+
+def _month_start(n: int) -> _date:
+    """First day of the month n months BEFORE the anchor month."""
+    total = _ANCHOR_DATE.year * 12 + (_ANCHOR_DATE.month - 1) - n
+    return _date(total // 12, total % 12 + 1, 1)
+
+
+def _month_label(n: int) -> str:
+    """Human label ('Nov 2025') for the month n months before the anchor month."""
+    return f"{_month_start(n):%b %Y}"
+
 
 # =============================================================================
 # TABLE-LEVEL DESCRIPTIONS
@@ -308,7 +338,7 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
     # gold_practice_area_summary
     # -------------------------------------------------------------------------
     "gold_practice_area_summary": {
-        "practice_area": "Service line — values: Strategy & Consulting, Technology, Operations, Managed Services: Tech, Managed Services: Ops, Audit, Tax, Accounting. Technology (D&A) practice underperformed Q1 2026 due to enterprise client engagement pauses (demo narrative).",
+        "practice_area": f"Service line — values: Strategy & Consulting, Technology, Operations, Managed Services: Tech, Managed Services: Ops, Audit, Tax, Accounting. Technology (D&A) practice underperformed {_month_label(4)}–{_month_label(2)} due to enterprise client engagement pauses (demo narrative).",
         "fiscal_period": "First day of fiscal month (timestamp). Filter < DATE_TRUNC('MONTH', CURRENT_DATE()) to exclude partial in-progress month.",
         "accrued_revenue": "Monthly accrued billable revenue in USD (sum of billing_amount from billable timecards). Same definition as gold_enterprise_metrics.revenue at this finer grain.",
         "target_revenue": "Monthly STRETCH target in USD — set ~10% above trailing 6-month rolling average of accrued_revenue with mild seasonal adjustment (Q4 +6-8%, summer -6%). Firm misses these in 5-7 of every 12 months by 5-30%. NOT the annual budget — for annual budget see gold_regional_pnl.budgeted_revenue.",
@@ -331,7 +361,7 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "expense_variance_pct": "Variance vs budget = (accrued_expenses - budgeted_expenses) / budgeted_expenses × 100. Positive = over budget.",
         "department_lead": "Senior employee mapped from cost_center_mapping → dim_employees (Director, VP, SVP, Executive, Senior Partner, Partner, or Associate Partner). May be NULL when mapping doesn't resolve.",
         "region": "High-level region — Americas, EMEA, Asia Pacific.",
-        "location": "Office city. Chicago has engineered Q4 2025 Tech/Other category spike (demo narrative).",
+        "location": f"Office city. Chicago has engineered {_month_label(10)}–{_month_label(5)} Tech/Other category spike (demo narrative).",
         "practice_area": "Service line of the underlying engagement (when expense was rebillable).",
         "industry": "Client industry vertical (when applicable).",
         "customer": "Customer name (when expense was rebillable).",
@@ -402,9 +432,9 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "change_pct": "Period-over-period change = (current - previous) / previous × 100, capped to [-100, 500] to prevent extreme outliers on dashboard tiles.",
         "region": "High-level region — Americas, EMEA, Asia Pacific.",
         "location": "Office city. NY Operations + Marketing/Sales practices have engineered revenue dampener for last complete month.",
-        "practice_area": "Service line. D&A practice underperformed Q1 2026 due to enterprise client engagement pauses.",
+        "practice_area": f"Service line. D&A practice underperformed {_month_label(4)}–{_month_label(2)} due to enterprise client engagement pauses.",
         "industry": "Client industry vertical.",
         "customer": "Customer name — canonical filter column.",
-        "fiscal_period": "Latest complete month as a string (e.g., '2026-04-01 00:00:00').",
+        "fiscal_period": f"Latest complete month as a string (e.g., '{_month_start(1)} 00:00:00').",
     },
 }

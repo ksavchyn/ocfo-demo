@@ -43,7 +43,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -88,14 +88,17 @@ def _split_md_sections(md_text: str) -> dict[str, str]:
     return sections
 
 
-# As-of date for the FROZEN demo snapshot. The dataset is pinned to the
-# generator's ANCHOR_DATE; Genie must anchor every time-relative query to this
-# date, NOT wall-clock CURRENT_DATE() — once real calendar time passes the
-# anchor, CURRENT_DATE() points at months the frozen data only partially
-# contains and answers collapse to implausible numbers. Resolved from the data
-# at provision time by _resolve_as_of(); env CFO_AS_OF_DATE overrides; the
-# fallback literal matches the shipped ANCHOR_DATE.
-_AS_OF_DATE = os.environ.get("CFO_AS_OF_DATE", "2026-05-15")
+# As-of date for the demo dataset. The dataset is generated against the
+# pipeline's ANCHOR_DATE (dynamic by default — refreshed monthly with anchor =
+# run date); Genie must anchor every time-relative query to the DATA's own
+# latest date, NOT wall-clock CURRENT_DATE() — between refreshes CURRENT_DATE()
+# points at months the data only partially contains and answers collapse to
+# implausible numbers. Resolved from the data at provision time by
+# _resolve_as_of(); env CFO_AS_OF_DATE overrides; the last-resort fallback is
+# yesterday (least wrong guess under the dynamic anchor — mirrors demo_anchor).
+_AS_OF_DATE = os.environ.get("CFO_AS_OF_DATE") or (
+    datetime.now() - timedelta(days=1)
+).date().isoformat()
 
 
 def _resolve_as_of(client: WorkspaceClient, warehouse_id: str, schema_fqn: str) -> str:

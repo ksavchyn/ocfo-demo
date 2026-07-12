@@ -172,7 +172,13 @@ Wall-clock: 30 min. App, dashboards, and Genie now point at `<your-catalog>.cfo_
 
 ## Step 4 (optional) — Schedule recurring refreshes
 
-If your underlying data updates regularly, schedule the `cfo_data_pipeline` job so silver/gold + the chip pre-cache stay fresh. In `databricks.yml`, find the job definition and add a `schedule` block. Or set it through the UI: Workflows → `cfo_data_pipeline` → Schedule.
+If your underlying data updates regularly, schedule the `cfo_data_pipeline` job so silver/gold + the chip pre-cache stay fresh. A monthly schedule (1st of the month, 06:00 UTC) now ships enabled by default in `databricks.yml`; adjust or pause it under Workflows → `cfo_data_pipeline` → Schedule.
+
+### Dynamic vs. anchored dates (synthetic data)
+
+The synthetic dataset anchors its "as of" date to the pipeline **run date** by default (`CFO_AS_OF_MODE=dynamic`), so KPIs, trends, and Genie answers always read as current — and the monthly schedule keeps them that way. The engineered narrative (seasonal dip, latest-month rebound, budget stories) is keyed to offsets from the anchor, so it lands on the same *relative* months no matter when you deploy.
+
+To pin a byte-stable snapshot instead (e.g., to rehearse a demo script against fixed numbers), set the job parameters `CFO_AS_OF_MODE=anchored` and `CFO_AS_OF_DATE=YYYY-MM-DD`, re-run the pipeline, and pause the schedule while frozen.
 
 ---
 

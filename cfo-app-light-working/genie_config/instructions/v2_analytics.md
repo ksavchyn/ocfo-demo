@@ -44,20 +44,20 @@ These patterns cause silent wrong answers. Apply them ALWAYS.
 **Wrong (silent bug — only the LAST OR branch gets the AND filter):**
 ```sql
 WHERE location ILIKE '%London%' OR location ILIKE '%Munich%' OR location ILIKE '%Chicago%'
-  AND fiscal_period = DATE('2026-04-01')
--- Parses as: London(any period) OR Munich(any period) OR (Chicago AND April-only)
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+-- Parses as: London(any period) OR Munich(any period) OR (Chicago AND latest-month-only)
 ```
 
 **Right (use IN — strongly preferred for multi-value match):**
 ```sql
 WHERE location IN ('London', 'Munich', 'Chicago')
-  AND fiscal_period = DATE('2026-04-01')
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 ```
 
 **Right (parens if you must use OR/ILIKE):**
 ```sql
 WHERE (location ILIKE '%London%' OR location ILIKE '%Munich%' OR location ILIKE '%Chicago%')
-  AND fiscal_period = DATE('2026-04-01')
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 ```
 
 Default to `IN (...)` for known list of values. Reserve `ILIKE` for partial-match search; even then, wrap the OR group in parens whenever combined with AND.
@@ -90,7 +90,7 @@ The upper bound is **always strict less-than against `DATE_TRUNC('MONTH', CURREN
 
 ### Multi-query consistency — same window across every sub-query in a single answer
 
-When a single user question requires multiple SQL queries to answer (e.g. firmwide trend AND practice-level trend, or per-region cut AND per-office cut), **every sub-query MUST use the same fiscal time window anchored to `DATE_TRUNC('MONTH', CURRENT_DATE())`**. The most damaging failure mode is window drift: sub-query A returns the last 6 months as `Oct 2025 → Apr 2026` while sub-query B returns 6 months but starting from a different anchor like `Jun 2026 → Nov 2026`. When the synthesis tries to overlay them in one comparison table, the second cut's columns render as `—` for every row and the answer is visibly broken.
+When a single user question requires multiple SQL queries to answer (e.g. firmwide trend AND practice-level trend, or per-region cut AND per-office cut), **every sub-query MUST use the same fiscal time window anchored to `DATE_TRUNC('MONTH', CURRENT_DATE())`**. The most damaging failure mode is window drift: sub-query A returns the last 6 complete months while sub-query B returns 6 months starting from a different anchor (e.g. shifted into future or partial months). When the synthesis tries to overlay them in one comparison table, the second cut's columns render as `—` for every row and the answer is visibly broken.
 
 Rules:
 - All sub-queries in one user-question answer use IDENTICAL window bounds (same lower bound, same upper bound).
@@ -104,12 +104,12 @@ Rules:
 
 **Wrong (filters by lifecycle dates — returns 0 rows for in-flight projects):**
 ```sql
-WHERE project_end_date >= DATE('2026-04-01') AND project_end_date < DATE('2026-05-01')
+WHERE project_end_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) AND project_end_date < DATE_TRUNC('MONTH', CURRENT_DATE())
 ```
 
 **Right (filter by fiscal-period column like any monthly fact):**
 ```sql
-WHERE fiscal_period = DATE('2026-04-01')
+WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 -- or for a quarter window:
 WHERE fiscal_period >= DATE_TRUNC('QUARTER', ADD_MONTHS(CURRENT_DATE(), -3))
   AND fiscal_period <  DATE_TRUNC('QUARTER', CURRENT_DATE())
@@ -406,7 +406,7 @@ WHERE rn <= 2;
 
 **Routing summary (no exceptions):** Firmwide current DSO with no decomposition → `silver_fact_accounts_receivable` `AVG(days_outstanding)`. ANY DSO sliced by office / region / client / time / ranking / trend → `gold_ar_snapshot_aging` only, using the office-trend formula `SUM(open_ar_balance * weighted_dso_days) / NULLIF(SUM(open_ar_balance), 0)` across ALL aging_bucket rows for that office.
 
-**NEVER filter by `aging_bucket` when computing office / region / firmwide DSO** — that returns the average age within ONE bucket (e.g. 90+ bucket = 135–181 days), NOT the office DSO. Office DSO must aggregate the sum-product across ALL buckets for that office. **NEVER compute aging or days-outstanding from `DATEDIFF(CURRENT_DATE(), invoice_date)`** for any aging / 90+ / days-outstanding question — always use `DATEDIFF(snapshot_date, invoice_date)` or read `days_out` from `gold_ar_snapshot_aging`. CURRENT_DATE inflates the April 90+ bucket with invoices that are only 61–90 days old at the April snapshot.
+**NEVER filter by `aging_bucket` when computing office / region / firmwide DSO** — that returns the average age within ONE bucket (e.g. 90+ bucket = 135–181 days), NOT the office DSO. Office DSO must aggregate the sum-product across ALL buckets for that office. **NEVER compute aging or days-outstanding from `DATEDIFF(CURRENT_DATE(), invoice_date)`** for any aging / 90+ / days-outstanding question — always use `DATEDIFF(snapshot_date, invoice_date)` or read `days_out` from `gold_ar_snapshot_aging`. CURRENT_DATE inflates the latest snapshot's 90+ bucket with invoices that are only 61–90 days old at that snapshot.
 
 ## Partner Headcount and Revenue per Partner — formula guidance (MUST FOLLOW)
 

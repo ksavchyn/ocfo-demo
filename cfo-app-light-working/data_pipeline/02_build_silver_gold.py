@@ -14,14 +14,10 @@
 # DBTITLE 1,Configuration & Imports
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
-# UC table + column descriptions for the 12 tables that don't have metadata
-# inline below. Source-of-truth lives in uc_metadata.py so the customer
-# bundle deploy carries the same docs through.
 import sys
 sys.path.insert(0, ".")
-from uc_metadata import TABLE_DOCS, COLUMN_DOCS
 
 import os
 
@@ -29,6 +25,9 @@ import os
 try:
     dbutils.widgets.text("CFO_CATALOG", "main")  # noqa: F821
     dbutils.widgets.text("CFO_SCHEMA_NAME", "cfo_proserv_dev")  # noqa: F821
+    # As-of anchor controls — see the ANCHOR_DATE block below for semantics.
+    dbutils.widgets.text("CFO_AS_OF_MODE", "dynamic")  # noqa: F821
+    dbutils.widgets.text("CFO_AS_OF_DATE", "")  # noqa: F821
     _WIDGETS = True
 except Exception:
     _WIDGETS = False
@@ -52,6 +51,66 @@ print(f"Target: {CATALOG}.{SCHEMA}")
 BRONZE_PREFIX = "bronze_"
 SILVER_PREFIX = "silver_"
 GOLD_PREFIX = "gold_"
+
+# ─── As-of anchor (must match 01_generate_bronze_data.py) ──────────────────
+# Read the same way as CFO_CATALOG (widget first, env fallback):
+#   CFO_AS_OF_MODE = "dynamic" (default) → anchor = date.today()
+#   CFO_AS_OF_MODE = "anchored"          → anchor = CFO_AS_OF_DATE (default 2026-05-17,
+#                                          the historical fixed anchor)
+# The engineered narrative beats below (partner promotion class, revenue dip,
+# Technology underperform, Chicago buildout) are keyed as month OFFSETS from
+# this anchor — the same offsets 01's DEMO_OVERRIDES uses — so silver/gold
+# adjustments land on the exact months the bronze generator engineered.
+AS_OF_MODE = _config("CFO_AS_OF_MODE", "dynamic").strip().lower()
+if AS_OF_MODE == "anchored":
+    ANCHOR_DATE = date.fromisoformat(_config("CFO_AS_OF_DATE", "") or "2026-05-17")
+else:
+    ANCHOR_DATE = date.today()
+print(f"As-of anchor: {ANCHOR_DATE} (mode={AS_OF_MODE})")
+
+
+def _month_offset(n: int) -> tuple:
+    """(year, month) tuple for the month n months BEFORE the anchor month."""
+    total = ANCHOR_DATE.year * 12 + (ANCHOR_DATE.month - 1) - n
+    return (total // 12, total % 12 + 1)
+
+
+def _month_start(n: int) -> date:
+    """First day of the month n months before the anchor month."""
+    y, m = _month_offset(n)
+    return date(y, m, 1)
+
+
+def _month_end(n: int) -> date:
+    """Last day of the month n months before the anchor month."""
+    return _month_start(n - 1) - timedelta(days=1)
+
+
+def _month_label(n: int) -> str:
+    """Human label ('Nov 2025') for the month n months before the anchor month."""
+    return f"{_month_start(n):%b %Y}"
+
+
+# Narrative beat calendar — offsets mirror 01_generate_bronze_data.py's
+# DEMO_OVERRIDES beats. Comments give the absolute months these resolved to
+# under the historical 2026-05-17 anchor.
+PROMO_CLASS_START = _month_start(4)                    # partner promotion class begins (Jan 2026)
+REV_DIP_YEAR, REV_DIP_MONTH = _month_offset(6)         # firmwide revenue dip month (Nov 2025)
+TECH_DIP_START = _month_start(4)                       # Technology 3-month underperform start (Jan 2026)
+TECH_DIP_END = _month_end(2)                           # Technology underperform end (Mar 2026)
+CHI_BUILDOUT_START = _month_start(10)                  # Chicago buildout window start (Jul 2025)
+CHI_BUILDOUT_END = _month_end(5)                       # Chicago buildout window end (Dec 2025)
+
+# Thread the resolved anchor into the environment BEFORE importing uc_metadata,
+# so the module (which can't read widgets) derives the identical anchor for its
+# narrative-month labels.
+os.environ["CFO_AS_OF_MODE"] = AS_OF_MODE
+os.environ["CFO_AS_OF_DATE"] = ANCHOR_DATE.isoformat()
+
+# UC table + column descriptions for the 12 tables that don't have metadata
+# inline below. Source-of-truth lives in uc_metadata.py so the customer
+# bundle deploy carries the same docs through.
+from uc_metadata import TABLE_DOCS, COLUMN_DOCS  # noqa: E402
 
 # Bronze data is generated as employee-level T&E and individual customer invoices,
 # which sums to magnitudes far below realistic firmwide totals. These multipliers
@@ -192,7 +251,7 @@ spark.sql(f"SELECT COUNT(*) AS row_count FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}
 # COMMAND ----------
 
 # DBTITLE 1,Silver: Dim Employees (Monthly Snapshots)
-# Generate monthly snapshots from 2023-03 through 2026-02 so that the Admin Dashboard
+# Generate monthly snapshots for the trailing 36 complete months so that the Admin Dashboard
 # can compare headcount across periods (current vs. previous month/quarter/year).
 # Each snapshot reflects the employee state as of the last day of that month.
 # NOTE: An `is_latest_snapshot` column is included so downstream queries that
@@ -271,20 +330,22 @@ SELECT
         ELSE 'Active'
     END                                       AS employment_status,
     b.position_title,
-    -- Q4/Q10 demo narrative: Early-2026 partner promotion class.
-    -- Promote 3% of Directors + 6% of Associate Partners to Partner in 2026 snapshots
-    -- so partner-count grows faster than revenue → revenue-per-partner declines ~5% YoY.
-    -- Story: "Firm elevated 50+ Directors and 330+ Associate Partners to Partner in Q1 2026."
+    -- Q4/Q10 demo narrative: recent partner promotion class (anchor−4 months
+    -- onward; Jan 2026 under the historical anchor).
+    -- Promote 3% of Directors + 6% of Associate Partners to Partner in snapshots
+    -- from that month forward so partner-count grows faster than revenue →
+    -- revenue-per-partner declines ~5% YoY.
+    -- Story: "Firm elevated 50+ Directors and 330+ Associate Partners to Partner this quarter."
     CASE
         -- Tuned to land ~76 firmwide new partners. Previous 1%/1.7% gave 128; the
         -- silver_dim_employees snapshot has more APs/Dirs than predicted so dial down.
         -- 0.6% Directors + 1.0% APs → ~7 + 60 ≈ 67. Slightly low but in target band.
         WHEN b.job_level = 'Director'
-             AND s.snapshot_date >= DATE('2026-01-01')
+             AND s.snapshot_date >= DATE('{PROMO_CLASS_START}')
              AND ABS(HASH(b.employee_id)) % 1000 < 6
         THEN 'Partner'
         WHEN b.job_level = 'Associate Partner'
-             AND s.snapshot_date >= DATE('2026-01-01')
+             AND s.snapshot_date >= DATE('{PROMO_CLASS_START}')
              AND ABS(HASH(b.employee_id)) % 1000 < 10
         THEN 'Partner'
         ELSE b.job_level
@@ -332,10 +393,10 @@ spark.sql(f"SELECT COUNT(*) AS row_count FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}
 apply_table_metadata(
     f"{SILVER_PREFIX}dim_employees",
     "Employee dimension with monthly snapshots (one row per employee × snapshot_date). "
-    "Q1 2026 partner promotion class engineered: ~3% of Directors and ~6% of Associate Partners "
-    "promoted to Partner from Jan 2026 forward (Q4/Q10 demo narrative — drives revenue-per-partner YoY decline).",
+    f"{_month_label(4)} partner promotion class engineered: ~3% of Directors and ~6% of Associate Partners "
+    f"promoted to Partner from {_month_label(4)} forward (Q4/Q10 demo narrative — drives revenue-per-partner YoY decline).",
     {
-        "job_level": "Job level — values: Senior Partner, Partner, Associate Partner, Director, Engagement Manager, Associate, Business Analyst. Partners promoted from Director (~3%) and Associate Partner (~6%) starting Jan 2026.",
+        "job_level": f"Job level — values: Senior Partner, Partner, Associate Partner, Director, Engagement Manager, Associate, Business Analyst. Partners promoted from Director (~3%) and Associate Partner (~6%) starting {_month_label(4)}.",
         "employment_status": "Employment state at snapshot — values: Active, Terminated, Pre-Hire. Use Active for current headcount.",
         "snapshot_date": "Last day of month for this snapshot row. Use MAX(snapshot_date) for current view; ADD_MONTHS(MAX, -12) for YoY comparison.",
         "is_current": "TRUE if employee was active as of the snapshot_date row.",
@@ -490,22 +551,22 @@ cost_rate_deduped AS (
 ),
 -- Demo narrative anomalies: layered per (location, practice, period) so dimensional
 -- drill-downs find a coherent business story behind each headline variance:
---   Q7 Nov 2025 firmwide rev dip — Thanksgiving + post-election billable-day shortfall.
+--   Q7 anchor−6-month ({REV_DIP_YEAR}-{REV_DIP_MONTH:02d}) firmwide rev dip — holiday-season billable-day shortfall.
 --     DIFFERENTIAL by practice + region so the firmwide miss tells a real story (delivery-
 --     heavy practices hit hardest, Q4-cyclical practices like Audit hold up). Replaces the
 --     prior uniform 0.82 multiplier that produced an unrealistic ~-34% miss in every cell.
---   Q5 Technology Q1 2026 underperform — 3-4 large enterprise clients paused (-15%)
+--   Q5 Technology anchor−4..−2-month underperform — 3-4 large enterprise clients paused (-15%)
 --   Q1 NY Ops + Marketing/Sales last complete month — specific client engagement losses (-40%)
 bronze_timecards_narrative AS (
     SELECT
         bt.*,
         bt.hours * (
-            -- Nov 2025 differential seasonality. Firmwide ~-15-20% miss; per-cell variance
+            -- Dip-month differential seasonality. Firmwide ~-15-20% miss; per-cell variance
             -- ranges from -25%+ (Operations Americas) to near-zero (Audit). Story: delivery-
             -- heavy practices crushed by Thanksgiving PTO + project transitions; Audit
             -- ramps for Q4 client work; advisory practices weather the calendar shift.
             -- Practice names are demo-facing throughout (bronze, silver, gold, UI).
-            CASE WHEN YEAR(bt.work_date) = 2025 AND MONTH(bt.work_date) = 11 THEN
+            CASE WHEN YEAR(bt.work_date) = {REV_DIP_YEAR} AND MONTH(bt.work_date) = {REV_DIP_MONTH} THEN
                 CASE bt.practice_area
                     WHEN 'Operations'             THEN 0.78  -- delivery-heavy, hit hardest by Thanksgiving
                     WHEN 'Managed Services: Ops'  THEN 0.82  -- delivery shutdown impact
@@ -521,7 +582,7 @@ bronze_timecards_narrative AS (
                 * CASE WHEN bt.region = 'Americas' THEN 0.95 ELSE 1.0 END
             ELSE 1.0 END
             * CASE WHEN bt.practice_area = 'Technology'
-                    AND bt.work_date BETWEEN DATE('2026-01-01') AND DATE('2026-03-31') THEN 0.85 ELSE 1.0 END
+                    AND bt.work_date BETWEEN DATE('{TECH_DIP_START}') AND DATE('{TECH_DIP_END}') THEN 0.85 ELSE 1.0 END
             * CASE WHEN bt.location = 'New York' AND bt.practice_area IN ('Operations', 'Tax')
                     AND DATE_TRUNC('MONTH', bt.work_date) = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN 0.60 ELSE 1.0 END
         ) AS hours_adjusted
@@ -717,7 +778,7 @@ apply_table_metadata(
     f"{SILVER_PREFIX}fact_timecards",
     "Per-employee, per-day, per-project timecard fact table. Source of revenue (billing_amount) and "
     "delivery cost (cost_amount) for all financial rollups. Engineered narrative anomalies via "
-    "hours_adjusted: Q7 Nov 2025 firmwide -18%, Q5 Technology Q1 2026 -15%, Q1 NY Ops/Tax last "
+    f"hours_adjusted: Q7 {_month_label(6)} firmwide -18%, Q5 Technology {_month_label(4)}–{_month_label(2)} -15%, Q1 NY Ops/Tax last "
     "complete month -40%.",
     {
         "time_type_clean": "Cleaned time type — values: Billable, Non-Billable, Time Off, Other. Filter Billable for revenue-generating hours.",
@@ -729,7 +790,7 @@ apply_table_metadata(
         "approval_status": "Approval state — typically Approved or Pending. Filter Approved for finalized financials.",
         "revenue_category": "Revenue type classification — values: Billable, Products, Partnerships, Other. Drives revenue stack on regional revenue chart.",
         "work_date": "Date the work was performed. Use for monthly aggregation: DATE_TRUNC('MONTH', work_date).",
-        "practice_area": "Service line. Technology practice underperformed Q1 2026 due to enterprise client engagement pauses.",
+        "practice_area": f"Service line. Technology practice underperformed {_month_label(4)}–{_month_label(2)} due to enterprise client engagement pauses.",
         "location": "Office city. NY Operations + Marketing/Sales practices have engineered revenue dampener for last complete month.",
     },
 )
@@ -789,8 +850,9 @@ expense_base_raw AS (
         ON er.cost_center = ccd.cost_center_code
 ),
 -- Demo narrative anomaly multiplier on expense amounts:
---   Q6 Chicago 2025 office buildout — Tech + Other expense categories spike Jul-Dec 2025 (+60% / +30%)
---     Story: Chicago opened expanded office floor + IT modernization mid-2025
+--   Q6 Chicago office buildout — Tech + Other expense categories spike over the
+--     anchor−10..−5-month window ({CHI_BUILDOUT_START} to {CHI_BUILDOUT_END}) (+60% / +30%)
+--     Story: Chicago opened expanded office floor + IT modernization
 --   Q1 NY Ops + Marketing/Sales last complete month — paired with timecards dampener
 --     so NY's expense-to-revenue ratio stays preserved when revenue drops (-50% on those cells)
 expense_base AS (
@@ -800,10 +862,10 @@ expense_base AS (
         eb.expense_date, eb.expense_type,
         eb.amount * (
             CASE WHEN eb.location = 'Chicago'
-                  AND eb.expense_date BETWEEN DATE('2025-07-01') AND DATE('2025-12-31')
+                  AND eb.expense_date BETWEEN DATE('{CHI_BUILDOUT_START}') AND DATE('{CHI_BUILDOUT_END}')
                   AND UPPER(COALESCE(eb.department_category, '')) IN ('IT', 'R&D', 'TECHNOLOGY', 'ENGINEERING') THEN 1.60
                  WHEN eb.location = 'Chicago'
-                  AND eb.expense_date BETWEEN DATE('2025-07-01') AND DATE('2025-12-31')
+                  AND eb.expense_date BETWEEN DATE('{CHI_BUILDOUT_START}') AND DATE('{CHI_BUILDOUT_END}')
                   AND UPPER(COALESCE(eb.department_category, '')) NOT IN ('IT', 'R&D', 'TECHNOLOGY', 'ENGINEERING', 'FINANCE', 'HR', 'LEGAL', 'EXECUTIVE', 'MARKETING', 'SALES') THEN 1.30
                  ELSE 1.0
             END
@@ -951,58 +1013,95 @@ ranked_per_office AS (
     SELECT
         project_id, location, total_contract_value, target_total_te,
         current_te, row_count,
-        ROW_NUMBER() OVER (PARTITION BY location ORDER BY total_contract_value DESC) AS rn
+        -- 2026-07-11 FIX: project_id tie-breaker. Engagements minted from the
+        -- same contract can share an EXACT total_contract_value (e.g. two
+        -- London projects both at $14,944,932.43), and ROW_NUMBER over a tied
+        -- ORDER BY is nondeterministic between evaluations.
+        ROW_NUMBER() OVER (PARTITION BY location ORDER BY total_contract_value DESC, project_id) AS rn
     FROM eligible
 )
 SELECT
     project_id, total_contract_value, target_total_te, current_te, row_count
 FROM ranked_per_office
 WHERE rn = 1
-ORDER BY total_contract_value DESC
+ORDER BY total_contract_value DESC, project_id
 LIMIT 8
 """)
 
-# Engineered T&E outliers: multiply each project's billable expense rows by
-# (target_te / current_te) so the project's total T&E lands at exactly 6.5-9.5%
-# of contract value. Previous fixed-multiplier approach (12x, 30x) didn't
-# reliably hit the threshold because natural T&E varied wildly across projects.
-# This ratio approach is grain-correct and deterministic — same 8 projects
-# always end up in the 6.5-9.5% band regardless of underlying T&E magnitudes.
-spark.sql(f"""
-MERGE INTO {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses AS target
-USING _top_te_projects AS source
-ON target.project_id = source.project_id
-WHEN MATCHED AND target.expense_category_business = 'Billable'
-    THEN UPDATE SET amount = ROUND(target.amount * (source.target_total_te / source.current_te), 2)
-""")
-
-n_boosted = spark.sql(f"""
-SELECT COUNT(*) AS n FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses exp
-JOIN _top_te_projects tp ON exp.project_id = tp.project_id
-WHERE exp.expense_category_business = 'Billable'
-""").collect()[0]["n"]
-print(f"T&E outlier engineering applied — 8 mid-sized projects scaled to 6.5-9.5% T&E:contract ratio ({n_boosted} expense rows touched).")
-# Capture the engineered-outlier project_ids so gold_regional_pnl can EXCLUDE them.
-# Their billable T&E was boosted to 6.5-9.5% of contract value for the Top T&E
-# Outliers audit table (which reads silver amounts ×1). The SAME rows would
-# otherwise be ×EXPENSE_SCALE'd into gold_regional_pnl.total_expenses — a single
-# ~$930K boosted row × 150 = ~$140M, which detonates an office-month P&L (this is
-# the Sydney-April-$167M bug). Excluding these 8 projects from the office rollup
-# costs only their tiny natural T&E (~$10-15K each, immaterial vs ~$560M/month);
-# the audit table still reads the boosted silver values it needs.
+# ── 2026-07-11 FIX (London-June +321.8% / Atlanta +433.3% artifacts) ─────────
+# _top_te_projects is a lazily-evaluated TEMP VIEW. The old flow evaluated it
+# TWICE — once inside the MERGE (which boosted one set of 8 projects) and once
+# afterwards to collect _TE_OUTLIER_PROJECT_IDS (gold_regional_pnl's exclusion
+# list). With exact contract-value ties, the two evaluations disagreed
+# (nondeterministic ROW_NUMBER tie-break): the MERGE boosted London project
+# 782b8ca9 / Atlanta 2811c060 but the exclusion list captured their tied twins,
+# so the BOOSTED rows escaped the exclusion and a single ~$900K boosted row
+# × EXPENSE_SCALE detonated an office-month P&L. Fix: collect the selection
+# ONCE into Python, then drive BOTH the MERGE (via a literal-VALUES view) and
+# the exclusion list from that same pinned set.
+_te_outlier_rows = spark.sql(
+    "SELECT project_id, target_total_te, current_te FROM _top_te_projects"
+).collect()
 _TE_OUTLIER_PROJECT_IDS = [
-    r["project_id"] for r in spark.sql("SELECT project_id FROM _top_te_projects").collect()
-    if r["project_id"] is not None
+    r["project_id"] for r in _te_outlier_rows if r["project_id"] is not None
 ]
+_te_values_sql = ", ".join(
+    "('{pid}', CAST({tgt!r} AS DOUBLE), CAST({cur!r} AS DOUBLE))".format(
+        pid=str(r["project_id"]).replace("'", "''"),
+        tgt=float(r["target_total_te"]),
+        cur=float(r["current_te"]),
+    )
+    for r in _te_outlier_rows
+    if r["project_id"] is not None and r["current_te"]
+)
+if _te_values_sql:
+    spark.sql(f"""
+    CREATE OR REPLACE TEMP VIEW _top_te_projects_pinned AS
+    SELECT project_id, target_total_te, current_te
+    FROM VALUES {_te_values_sql} AS t(project_id, target_total_te, current_te)
+    """)
+
+    # Engineered T&E outliers: multiply each project's billable expense rows by
+    # (target_te / current_te) so the project's total T&E lands at exactly 6.5-9.5%
+    # of contract value. Previous fixed-multiplier approach (12x, 30x) didn't
+    # reliably hit the threshold because natural T&E varied wildly across projects.
+    # This ratio approach is grain-correct and deterministic — same 8 projects
+    # always end up in the 6.5-9.5% band regardless of underlying T&E magnitudes.
+    spark.sql(f"""
+    MERGE INTO {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses AS target
+    USING _top_te_projects_pinned AS source
+    ON target.project_id = source.project_id
+    WHEN MATCHED AND target.expense_category_business = 'Billable'
+        THEN UPDATE SET amount = ROUND(target.amount * (source.target_total_te / source.current_te), 2)
+    """)
+
+    n_boosted = spark.sql(f"""
+    SELECT COUNT(*) AS n FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses exp
+    JOIN _top_te_projects_pinned tp ON exp.project_id = tp.project_id
+    WHERE exp.expense_category_business = 'Billable'
+    """).collect()[0]["n"]
+    print(f"T&E outlier engineering applied — 8 mid-sized projects scaled to 6.5-9.5% T&E:contract ratio ({n_boosted} expense rows touched).")
+else:
+    print("T&E outlier engineering SKIPPED — no eligible projects selected.")
+# _TE_OUTLIER_PROJECT_IDS (collected from the SAME pinned set the MERGE used)
+# lets gold_regional_pnl EXCLUDE these projects. Their billable T&E was boosted
+# to 6.5-9.5% of contract value for the Top T&E Outliers audit table (which
+# reads silver amounts ×1). The SAME rows would otherwise be ×EXPENSE_SCALE'd
+# into gold_regional_pnl.total_expenses — a single ~$930K boosted row × 150 =
+# ~$140M, which detonates an office-month P&L (this is the Sydney-April-$167M
+# bug). Excluding these 8 projects from the office rollup costs only their tiny
+# natural T&E (~$10-15K each, immaterial vs ~$560M/month); the audit table
+# still reads the boosted silver values it needs.
 print(f"Excluding {len(_TE_OUTLIER_PROJECT_IDS)} T&E-outlier projects from regional P&L rollup: {_TE_OUTLIER_PROJECT_IDS}")
 spark.sql("DROP VIEW IF EXISTS _top_te_projects")
+spark.sql("DROP VIEW IF EXISTS _top_te_projects_pinned")
 # ─────────────────────────────────────────────────────────────────────────────
 
 apply_table_metadata(
     f"{SILVER_PREFIX}fact_expenses",
     "Per-expense-item fact table from Concur (T&E, software, contractor, travel). Source of "
     "operating_expenses for all financial rollups. Engineered narrative anomalies on amount: "
-    "Q6 Chicago Tech/Other +60%/+30% Jul-Dec 2025; Q1 NY Ops/Tax -50% last complete month "
+    f"Q6 Chicago Tech/Other +60%/+30% {_month_label(10)}–{_month_label(5)}; Q1 NY Ops/Tax -50% last complete month "
     "(paired with timecards dampener).",
     {
         "expense_date": "Date the expense was incurred. Use for monthly aggregation.",
@@ -1014,7 +1113,7 @@ apply_table_metadata(
         "is_billable": "TRUE if expense is rebillable to a client; FALSE if firm overhead.",
         "approval_status": "Concur report approval state — typically Submitted, Approved, Rejected.",
         "receipt_status": "Receipt presence — values: Received, Missing.",
-        "location": "Office where expense was incurred. Chicago has engineered Q4 2025 Tech/Other category spike.",
+        "location": f"Office where expense was incurred. Chicago has engineered {_month_label(10)}–{_month_label(5)} Tech/Other category spike.",
     },
 )
 spark.sql(f"SELECT COUNT(*) AS row_count FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}fact_expenses").show()
@@ -1655,7 +1754,7 @@ apply_table_metadata(
         "billable_expenses": "Billable T&E expenses in USD (client-rebillable consultant T&E).",
         "corporate_expenses": "Corporate overhead expenses in USD (Finance, HR, Legal, Executive cost centers).",
         "marketing_expenses": "Marketing & Sales expenses in USD.",
-        "tech_expenses": "Technology / IT expenses in USD. Spike in Chicago Jul-Dec 2025 due to office buildout + IT modernization (Q6 demo narrative).",
+        "tech_expenses": f"Technology / IT expenses in USD. Spike in Chicago {_month_label(10)}–{_month_label(5)} due to office buildout + IT modernization (Q6 demo narrative).",
         "other_expenses": "Other expense categories (catch-all bucket).",
         "budgeted_billable_expenses": "Monthly budget for the Billable category in USD. Pair with billable_expenses to compute per-category variance vs budget.",
         "budgeted_corporate_expenses": "Monthly budget for the Corporate category in USD. Pair with corporate_expenses for category-level variance.",
@@ -2138,10 +2237,15 @@ WITH client_invoices AS (
         due_date,
         amount,
         GREATEST(COALESCE(days_outstanding, 0), 0)               AS days_outstanding,
+        -- 2026-07-11 FIX: bucket from the row's real days_outstanding. The old
+        -- HASH(record_id)-allocated 70/15/8/7 split contradicted the same
+        -- row's days_outstanding (6-day-old invoices in "90+ days") and made
+        -- the dashboard's 90+ bar ~4x the real month-end aging in
+        -- gold_ar_snapshot_aging ($362M vs $90M) — a demo-time contradiction.
         CASE
-            WHEN ABS(HASH(invoice_id)) % 100 < 70 THEN '0-30 days'
-            WHEN ABS(HASH(invoice_id)) % 100 < 85 THEN '31-60 days'
-            WHEN ABS(HASH(invoice_id)) % 100 < 93 THEN '61-90 days'
+            WHEN GREATEST(COALESCE(days_outstanding, 0), 0) <= 30 THEN '0-30 days'
+            WHEN GREATEST(COALESCE(days_outstanding, 0), 0) <= 60 THEN '31-60 days'
+            WHEN GREATEST(COALESCE(days_outstanding, 0), 0) <= 90 THEN '61-90 days'
             ELSE '90+ days'
         END                                                       AS aging_bucket,
         payment_status,
@@ -2165,10 +2269,11 @@ contractor_receivables AS (
         NULL                                                      AS due_date,
         billing_amount * 0.35                                     AS amount,
         DATEDIFF(CURRENT_DATE(), work_date)                       AS days_outstanding,
+        -- 2026-07-11 FIX: bucket from real age (see client_invoices note).
         CASE
-            WHEN ABS(HASH(timecard_id)) % 100 < 70 THEN '0-30 days'
-            WHEN ABS(HASH(timecard_id)) % 100 < 85 THEN '31-60 days'
-            WHEN ABS(HASH(timecard_id)) % 100 < 93 THEN '61-90 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 30 THEN '0-30 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 60 THEN '31-60 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 90 THEN '61-90 days'
             ELSE '90+ days'
         END                                                       AS aging_bucket,
         'Unbilled'                                                AS payment_status,
@@ -2193,10 +2298,11 @@ vendor_reimbursables AS (
         DATE_ADD(expense_date, 45)                                AS due_date,
         amount,
         GREATEST(DATEDIFF(CURRENT_DATE(), DATE_ADD(expense_date, 45)), 0) AS days_outstanding,
+        -- 2026-07-11 FIX: bucket from real age (see client_invoices note).
         CASE
-            WHEN ABS(HASH(expense_item_id)) % 100 < 70 THEN '0-30 days'
-            WHEN ABS(HASH(expense_item_id)) % 100 < 85 THEN '31-60 days'
-            WHEN ABS(HASH(expense_item_id)) % 100 < 93 THEN '61-90 days'
+            WHEN GREATEST(DATEDIFF(CURRENT_DATE(), DATE_ADD(expense_date, 45)), 0) <= 30 THEN '0-30 days'
+            WHEN GREATEST(DATEDIFF(CURRENT_DATE(), DATE_ADD(expense_date, 45)), 0) <= 60 THEN '31-60 days'
+            WHEN GREATEST(DATEDIFF(CURRENT_DATE(), DATE_ADD(expense_date, 45)), 0) <= 90 THEN '61-90 days'
             ELSE '90+ days'
         END                                                       AS aging_bucket,
         CASE WHEN approval_status = 'Approved' THEN 'Open' ELSE 'Pending' END AS payment_status,
@@ -2221,10 +2327,11 @@ other_receivables AS (
         NULL                                                      AS due_date,
         billing_amount * 0.10                                     AS amount,
         DATEDIFF(CURRENT_DATE(), work_date)                       AS days_outstanding,
+        -- 2026-07-11 FIX: bucket from real age (see client_invoices note).
         CASE
-            WHEN ABS(HASH(timecard_id)) % 100 < 70 THEN '0-30 days'
-            WHEN ABS(HASH(timecard_id)) % 100 < 85 THEN '31-60 days'
-            WHEN ABS(HASH(timecard_id)) % 100 < 93 THEN '61-90 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 30 THEN '0-30 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 60 THEN '31-60 days'
+            WHEN DATEDIFF(CURRENT_DATE(), work_date) <= 90 THEN '61-90 days'
             ELSE '90+ days'
         END                                                       AS aging_bucket,
         'Unbilled'                                                AS payment_status,

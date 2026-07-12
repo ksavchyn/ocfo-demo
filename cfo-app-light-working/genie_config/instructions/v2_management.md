@@ -43,20 +43,20 @@ These patterns cause silent wrong answers. Apply them ALWAYS.
 **Wrong (silent bug — only the LAST OR branch gets the AND filter):**
 ```sql
 WHERE location ILIKE '%London%' OR location ILIKE '%Munich%' OR location ILIKE '%Chicago%'
-  AND fiscal_period = DATE('2026-04-01')
--- Parses as: London(any period) OR Munich(any period) OR (Chicago AND April-only)
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
+-- Parses as: London(any period) OR Munich(any period) OR (Chicago AND latest-month-only)
 ```
 
 **Right (use IN — strongly preferred for multi-value match):**
 ```sql
 WHERE location IN ('London', 'Munich', 'Chicago')
-  AND fiscal_period = DATE('2026-04-01')
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 ```
 
 **Right (parens if you must use OR/ILIKE):**
 ```sql
 WHERE (location ILIKE '%London%' OR location ILIKE '%Munich%' OR location ILIKE '%Chicago%')
-  AND fiscal_period = DATE('2026-04-01')
+  AND fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 ```
 
 Default to `IN (...)` for known list of values. Reserve `ILIKE` for partial-match search; even then, wrap the OR group in parens whenever combined with AND.
@@ -87,7 +87,7 @@ The upper bound is **always strict less-than against `DATE_TRUNC('MONTH', CURREN
 
 ### Multi-query consistency — same window across every sub-query in a single answer
 
-When a single user question requires multiple SQL queries to answer (e.g. firmwide trend AND practice-level trend, or per-region cut AND per-office cut), **every sub-query MUST use the same fiscal time window anchored to `DATE_TRUNC('MONTH', CURRENT_DATE())`**. The most damaging failure mode is window drift: sub-query A returns the last 6 months as `Oct 2025 → Apr 2026` while sub-query B returns 6 months starting from a different anchor like `Jun 2026 → Nov 2026`. When the synthesis tries to overlay them in one comparison table, the second cut's columns render as `—` for every row and the answer is visibly broken.
+When a single user question requires multiple SQL queries to answer (e.g. firmwide trend AND practice-level trend, or per-region cut AND per-office cut), **every sub-query MUST use the same fiscal time window anchored to `DATE_TRUNC('MONTH', CURRENT_DATE())`**. The most damaging failure mode is window drift: sub-query A returns the last 6 complete months while sub-query B returns 6 months starting from a different anchor (e.g. shifted into future or partial months). When the synthesis tries to overlay them in one comparison table, the second cut's columns render as `—` for every row and the answer is visibly broken.
 
 Rules:
 - All sub-queries in one user-question answer use IDENTICAL window bounds.
@@ -101,19 +101,19 @@ Rules:
 
 **Wrong (filters by lifecycle dates — returns 0 rows for in-flight entities):**
 ```sql
-WHERE project_end_date >= DATE('2026-04-01') AND project_end_date < DATE('2026-05-01')
+WHERE project_end_date >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) AND project_end_date < DATE_TRUNC('MONTH', CURRENT_DATE())
 ```
 
 **Right (filter by fiscal-period column like any monthly fact):**
 ```sql
-WHERE fiscal_period = DATE('2026-04-01')
+WHERE fiscal_period = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1)
 ```
 
 Use lifecycle dates ONLY for "what projects/contracts started or ended in window X" questions. For "what was project P's revenue in month M", always filter by the fiscal-period column.
 
 ### Project-level drivers of variance — include active in-flight projects
 
-When a question asks for **project-level attribution of a P&L variance** (e.g., "what projects drove London's expense overage in December 2025?", "which engagements are causing the margin compression in Strategy & Consulting?", "what's behind the billable expense overrun?"), the overage almost always sits in projects **still actively running** — not in projects that recently closed. Closed projects with their final actuals already booked are RARELY where in-flight variance lives.
+When a question asks for **project-level attribution of a P&L variance** (e.g., "what projects drove London's expense overage last month?", "which engagements are causing the margin compression in Strategy & Consulting?", "what's behind the billable expense overrun?"), the overage almost always sits in projects **still actively running** — not in projects that recently closed. Closed projects with their final actuals already booked are RARELY where in-flight variance lives.
 
 **Wrong (only finds closed projects, often returns 0 rows for active variance):**
 ```sql
@@ -219,7 +219,7 @@ DSO has TWO valid sources:
 - **Firmwide current, no decomposition** → `silver_fact_accounts_receivable` `AVG(days_outstanding)` on unpaid.
 - **Every other DSO question** (by office / region / client / month / ranking / averages / "highest/lowest office") → `gold_ar_snapshot_aging` month-end snapshots, weighted by `open_ar_balance`. This is the only basis that produces consistent answers across question phrasings.
 
-**NEVER `GROUP BY DATE_TRUNC('MONTH', invoice_date)` for DSO trend** — that returns cohort age, not snapshot DSO. **NEVER mix silver cohort age and gold snapshot DSO in the same session** — Sydney appearing at 47 days in one chat and 35 days in another is the visible failure mode. **NEVER filter by `aging_bucket` when computing office, region, or firmwide DSO** — that returns the average age within ONE bucket (e.g. 90+ bucket → 135–181 days), NOT the office DSO. Office DSO must always aggregate across ALL aging_bucket rows for that office, using the sum-product formula below. **NEVER compute aging or days-outstanding from `DATEDIFF(CURRENT_DATE(), invoice_date)`** — always use `DATEDIFF(snapshot_date, invoice_date)` or read `days_out` directly from `gold_ar_snapshot_aging`. Using CURRENT_DATE inflates April's 90+ bucket with invoices that are actually 61–90 days old at the April snapshot.
+**NEVER `GROUP BY DATE_TRUNC('MONTH', invoice_date)` for DSO trend** — that returns cohort age, not snapshot DSO. **NEVER mix silver cohort age and gold snapshot DSO in the same session** — Sydney appearing at 47 days in one chat and 35 days in another is the visible failure mode. **NEVER filter by `aging_bucket` when computing office, region, or firmwide DSO** — that returns the average age within ONE bucket (e.g. 90+ bucket → 135–181 days), NOT the office DSO. Office DSO must always aggregate across ALL aging_bucket rows for that office, using the sum-product formula below. **NEVER compute aging or days-outstanding from `DATEDIFF(CURRENT_DATE(), invoice_date)`** — always use `DATEDIFF(snapshot_date, invoice_date)` or read `days_out` directly from `gold_ar_snapshot_aging`. Using CURRENT_DATE inflates the latest snapshot's 90+ bucket with invoices that are actually 61–90 days old at that snapshot.
 
 DPO uses `AVG(days_outstanding)` against `silver_fact_accounts_payable` (current only; no snapshot history).
 

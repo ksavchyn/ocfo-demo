@@ -751,7 +751,7 @@ def get_partner_headcount(filters: Dict[str, Any] = None) -> Dict[str, Any]:
 
     Counts active partners in the latest monthly snapshot, with filter pass-through
     on region, location, practice_area. Budget is set to 5,000 (firmwide ~4,800
-    target post Q1 2026 promotion class — adjust if a real budget table is added).
+    target post the most recent promotion class — adjust if a real budget table is added).
     """
     filter_conditions = []
     if filters:
@@ -1018,8 +1018,8 @@ def format_admin_insights(filters: Dict[str, Any] = None) -> Dict[str, List[str]
 def get_bench_cost_metrics(filters: Dict[str, Any] = None) -> Dict[str, Any]:
     """Bench cost (non-billable hours $) — last complete month vs month before.
 
-    Ties to the engineered narrative: ~120 Technology consultants on bench in early
-    2026 driving rising bench cost. Pulls real data from silver_fact_timecards.
+    Ties to the engineered narrative: ~120 Technology consultants on bench in
+    recent months driving rising bench cost. Pulls real data from silver_fact_timecards.
     Filters on practice_area when set; region/location filters apply via
     denormalized columns on the timecards table when present.
     """

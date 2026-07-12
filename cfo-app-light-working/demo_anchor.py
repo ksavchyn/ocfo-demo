@@ -1,10 +1,11 @@
 """Single source of truth for the demo's "as of" date.
 
-The synthetic dataset is a FROZEN snapshot — the generator pins it to a fixed
-ANCHOR_DATE (see data_pipeline/01_generate_bronze_data.py) so the engineered
-narrative is byte-reproducible. Every time-relative query must therefore anchor
-to the DATA's own latest date, NOT wall-clock CURRENT_DATE(). If queries use
-CURRENT_DATE(), then once real calendar time passes the frozen anchor they ask
+The synthetic dataset is generated against an ANCHOR_DATE (see
+data_pipeline/01_generate_bronze_data.py) — dynamic by default (the pipeline
+run date, refreshed monthly by the scheduled job) or frozen via
+CFO_AS_OF_MODE=anchored. Either way, every time-relative query must anchor to
+the DATA's own latest date, NOT wall-clock CURRENT_DATE(). If queries use
+CURRENT_DATE(), then once real calendar time passes the data's anchor they ask
 for months the data only partially contains (e.g. a half-populated "current"
 month), and revenue/MoM/expense tiles silently collapse to implausible numbers.
 
@@ -26,9 +27,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Matches data_pipeline/01_generate_bronze_data.py ANCHOR_DATE. Only used if the
-# data-derived lookup AND the CFO_AS_OF_DATE env var are both unavailable.
-_FALLBACK_AS_OF = "2026-05-15"
+# Last-resort fallback, only used if the data-derived lookup AND the
+# CFO_AS_OF_DATE env var are both unavailable. With a dynamic anchor the least
+# wrong guess is "recent data": yesterday's date. (Historically this was the
+# fixed "2026-05-15" matching the frozen generator anchor.)
+def _fallback_as_of() -> str:
+    from datetime import date, timedelta
+    return (date.today() - timedelta(days=1)).isoformat()
 
 _cache: dict = {}
 
@@ -41,7 +46,7 @@ def _normalize(v) -> str | None:
 
 
 def _finalize(val, key) -> str:
-    val = val or os.environ.get("CFO_AS_OF_DATE") or _FALLBACK_AS_OF
+    val = val or os.environ.get("CFO_AS_OF_DATE") or _fallback_as_of()
     _cache[key] = val
     logger.info(f"[demo_anchor] as_of resolved to {val} ({key})")
     return val

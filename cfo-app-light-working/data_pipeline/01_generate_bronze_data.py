@@ -4,7 +4,7 @@
 # MAGIC # CFO Analytics Demo — Data Preparation (an elite consulting firm)
 # MAGIC **Modeled after an elite consulting firm (~$16B revenue, ~45K employees)**
 # MAGIC
-# MAGIC This notebook creates and populates 23 bronze tables in `{CATALOG}.{SCHEMA}` (default `main.cfo_proserv_dev`) with 3 years of synthetic data (2023-03 through 2026-02).
+# MAGIC This notebook creates and populates 23 bronze tables in `{CATALOG}.{SCHEMA}` (default `main.cfo_proserv_dev`) with 3 years of synthetic data (rolling window ending at the as-of anchor date — see the ANCHOR_DATE block below).
 # MAGIC
 # MAGIC ## Source Systems
 # MAGIC | System | Tables |
@@ -43,6 +43,9 @@ try:
     # CFO_SKIP_HYDRATE_BRONZE=true preserves those views and lets the silver/gold
     # build run on top of them. Wired via deploy.sh's `--skip-bronze-hydrate` flag.
     dbutils.widgets.text("CFO_SKIP_HYDRATE_BRONZE", "false")  # noqa: F821
+    # As-of anchor controls — see the ANCHOR_DATE block below for semantics.
+    dbutils.widgets.text("CFO_AS_OF_MODE", "dynamic")  # noqa: F821
+    dbutils.widgets.text("CFO_AS_OF_DATE", "")  # noqa: F821
     _WIDGETS = True
 except Exception:
     _WIDGETS = False
@@ -211,13 +214,39 @@ COST_RATES = {
     "Associate Partner": 1000.0, "Partner": 1300.0, "Senior Partner": 1800.0, "Director": 850.0,
 }
 
-# --- Date range (fixed anchor so the synthetic data is reproducible) ---
-# ANCHOR_DATE is the demo's "as of" date. It must be fixed, NOT date.today(): with a
-# fixed anchor + random.seed above, the dataset is byte-identical on every run and on
-# every machine, so the engineered outliers (T&E >6%, aged AR) always land inside the
-# app's filter windows. date.today() would slide the window per run-day and silently
-# push outliers out of range (Active→Expired, scores below threshold) → blank tiles.
-ANCHOR_DATE = date(2026, 5, 17)
+# --- Date range (anchor-relative so the engineered story is run-date independent) ---
+# ANCHOR_DATE is the demo's "as of" date. It is derived the same way CFO_CATALOG /
+# CFO_SCHEMA_NAME are read (widget first, env fallback):
+#   CFO_AS_OF_MODE = "dynamic" (default) → ANCHOR_DATE = date.today(). Every
+#       narrative beat below is keyed as an OFFSET from the anchor month, so the
+#       engineered outliers (T&E >6%, aged AR, seasonal dip) land in the same
+#       RELATIVE months — and inside the app's filter windows — no matter when
+#       the pipeline runs.
+#   CFO_AS_OF_MODE = "anchored" → freeze override: ANCHOR_DATE = CFO_AS_OF_DATE
+#       (ISO date; default "2026-05-17", the historical fixed anchor).
+# Reproducibility: with random.seed above, the dataset is byte-identical FOR A
+# GIVEN ANCHOR DATE, on every run and on every machine. The seed is unchanged —
+# only the calendar the story is painted onto moves with the anchor.
+AS_OF_MODE = _config("CFO_AS_OF_MODE", "dynamic").strip().lower()
+if AS_OF_MODE == "anchored":
+    ANCHOR_DATE = date.fromisoformat(_config("CFO_AS_OF_DATE", "") or "2026-05-17")
+else:
+    ANCHOR_DATE = date.today()
+ANCHOR_YEAR = ANCHOR_DATE.year
+print(f"As-of anchor: {ANCHOR_DATE} (mode={AS_OF_MODE})")
+
+
+def _month_offset(n: int) -> tuple:
+    """(year, month) tuple for the month n months BEFORE the anchor month.
+
+    _month_offset(0) is the anchor month itself; with an anchor in May 2026,
+    _month_offset(6) = (2025, 11). Narrative beats are keyed with this helper
+    so they track the anchor instead of absolute calendar months.
+    """
+    total = ANCHOR_DATE.year * 12 + (ANCHOR_DATE.month - 1) - n
+    return (total // 12, total % 12 + 1)
+
+
 DATE_END = ANCHOR_DATE
 DATE_START = DATE_END.replace(year=DATE_END.year - 3, day=1)
 
@@ -710,14 +739,15 @@ DEMO_OVERRIDES = {
     # over-budget narratives at the office grain.
     # ───────────────────────────────────────────────────────────────────────
     "fiscal_year_budgets": {
-        # FY2025 (prior): solid year — revenue beats by 8%, expenses 3% over
-        2025: {"revenue_vs_budget": 1.08, "expense_vs_budget": 1.03},
-        # FY2026 (current): tighter — revenue beats by 6%, expenses 8% over (compression narrative)
-        2026: {"revenue_vs_budget": 1.06, "expense_vs_budget": 1.08},
-        # FY2024 (older): baseline
-        2024: {"revenue_vs_budget": 1.08, "expense_vs_budget": 1.03},
-        # FY2023 (oldest): baseline
-        2023: {"revenue_vs_budget": 1.05, "expense_vs_budget": 1.02},
+        # Keyed relative to the anchor year so the trend follows the run date.
+        # Prior FY: solid year — revenue beats by 8%, expenses 3% over
+        ANCHOR_YEAR - 1: {"revenue_vs_budget": 1.08, "expense_vs_budget": 1.03},
+        # Current FY: tighter — revenue beats by 6%, expenses 8% over (compression narrative)
+        ANCHOR_YEAR: {"revenue_vs_budget": 1.06, "expense_vs_budget": 1.08},
+        # FY-2 (older): baseline
+        ANCHOR_YEAR - 2: {"revenue_vs_budget": 1.08, "expense_vs_budget": 1.03},
+        # FY-3 (oldest): baseline
+        ANCHOR_YEAR - 3: {"revenue_vs_budget": 1.05, "expense_vs_budget": 1.02},
     },
 
     # ───────────────────────────────────────────────────────────────────────
@@ -835,19 +865,20 @@ DEMO_OVERRIDES = {
         #   - revenue_multiplier: applied in bronze timecard generation (line ~1170)
         #     to billable rate, which propagates through billing_amount → silver_fact_timecards
         #     → gold_enterprise_metrics.revenue → firmwide RPP numerator.
-        # Q4 dip (Nov/Dec 2025): below-trend revenue + above-trend expenses, drives
-        # the Finance Overview seasonal-anomaly narrative.
-        (2025, 11): {"revenue_multiplier": 0.93, "expense_multiplier": 1.08},
-        (2025, 12): {"revenue_multiplier": 0.91, "expense_multiplier": 1.12},
-        # Latest complete month (April 2026): modest revenue lift +7% to produce a
+        # Seasonal dip (anchor−6 and anchor−5 months; Nov/Dec 2025 under the
+        # historical 2026-05-17 anchor): below-trend revenue + above-trend
+        # expenses, drives the Finance Overview seasonal-anomaly narrative.
+        _month_offset(6): {"revenue_multiplier": 0.93, "expense_multiplier": 1.08},
+        _month_offset(5): {"revenue_multiplier": 0.91, "expense_multiplier": 1.12},
+        # Latest complete month (anchor−1): modest revenue lift +7% to produce a
         # POSITIVE firmwide RPP YoY narrative. Without this, partner-count growth
         # firmwide (+0.65%) outpaces revenue growth, producing a -2% RPP YoY firmwide
         # that contradicts every practice's individual +YoY RPP gain (Simpson's paradox
-        # from headcount mix shift). The +7% revenue lift in April 2026 + flat 2025
-        # baseline yields ~+6% firmwide RPP YoY, aligning with the practice-level
-        # positive RPP picture. Cleanly producible business story: "Q1 revenue
-        # rebound after Nov/Dec 2025 dip."
-        (2026, 4):  {"revenue_multiplier": 1.07},
+        # from headcount mix shift). The +7% revenue lift in the latest complete month
+        # + flat prior-year baseline yields ~+6% firmwide RPP YoY, aligning with the
+        # practice-level positive RPP picture. Cleanly producible business story:
+        # "revenue rebound after the two-month dip."
+        _month_offset(1):  {"revenue_multiplier": 1.07},
     },
 
     # Per-customer AR aging caps (anti-explosion)
@@ -1004,7 +1035,7 @@ for i in range(TOTAL_EMPLOYEES):
 
     first    = random.choice(FIRST_NAMES)
     last     = random.choice(LAST_NAMES)
-    hire     = rand_date(date(2015, 1, 1), DATE_END - timedelta(days=60))
+    hire     = rand_date(date(ANCHOR_YEAR - 11, 1, 1), DATE_END - timedelta(days=60))
     # Partner attrition is MUCH lower than associate attrition at a Tier-1
     # firm. The uniform 20% rate from EMPLOYMENT_STATUSES annualizes to ~12%
     # partner attrition for the rolling-12 cohort, which read as the "24
@@ -1215,7 +1246,7 @@ for i in range(4500):
         amount = round(random.uniform(50_000_000, 150_000_000), 2) # Mega
 
     opp_rows.append((
-        oid, f"{acct['customer']} - {practice} - {random.randint(2023, 2026)}",
+        oid, f"{acct['customer']} - {practice} - {random.randint(ANCHOR_YEAR - 3, ANCHOR_YEAR)}",
         aid, stage, amount,
         STAGE_PROBS[stage], rand_date(),
         random.choice(FORECAST_CATS), random.choice(LEAD_SOURCES),
@@ -1365,7 +1396,7 @@ for i in range(8000):
     end = start + timedelta(days=duration_days)
     # Cap engagement end_date at DATE_END + 90 days so in-flight projects don't
     # bleed 6+ months into the future. Without this cap, project_end_date can
-    # land in Jun-Nov 2026 when DATE_END = May 17 2026, and any Genie query
+    # land up to ~6 months past DATE_END (the as-of anchor), and any Genie query
     # that mistakenly filters by project_end_date (instead of the canonical
     # monthly-grain `fiscal_period`) pulls future-windowed rows that don't
     # align with actuals tables. Keeping a 90-day forward window preserves
@@ -1931,7 +1962,7 @@ for i in range(12000):
     aid = opp_row[2]            # account_id position in opp tuple
     acct = account_lookup[aid]
     practice = opp_row[18]      # practice_area position in opp tuple
-    yr = random.choice([2023, 2024, 2025, 2026])
+    yr = random.choice([ANCHOR_YEAR - 3, ANCHOR_YEAR - 2, ANCHOR_YEAR - 1, ANCHOR_YEAR])
     qtr = random.randint(1, 4)
     q_start = date(yr, (qtr - 1) * 3 + 1, 1)
     if qtr < 4:
@@ -1941,7 +1972,7 @@ for i in range(12000):
     # Seasonal variation: Q4 higher, Q1 lower
     _q_mult = {1: 0.85, 2: 1.0, 3: 1.05, 4: 1.15}[qtr]
     # Year-over-year growth: ~8% per year
-    _yr_mult = 1.0 + 0.08 * (yr - 2023)
+    _yr_mult = 1.0 + 0.08 * (yr - (ANCHOR_YEAR - 3))
     base_amount = random.uniform(50_000, 800_000)
     amount = round(base_amount * _q_mult * _yr_mult, 2)
 
@@ -2451,7 +2482,7 @@ for i in range(50):
         f"ORG-{i+1:04d}", loc, region,
         country_map[region], random.choice(COST_CENTERS_LIST),
         random.choice(all_employee_ids[:100]),
-        rand_date(date(2020, 1, 1), date(2023, 3, 1)), rand_ts(),
+        rand_date(date(ANCHOR_YEAR - 6, 1, 1), date(ANCHOR_YEAR - 3, 3, 1)), rand_ts(),
         m["practice_area"], m["industry"], m["customer"],
     ))
 
@@ -2605,10 +2636,10 @@ for i in range(270000):
 
     # Seasonal multiplier: Q4 higher, Jan/Feb mildly lower, summer mild dip.
     # 2026-05-21 — softened. Prior values (Q4 1.15-1.30, Q1 0.75-0.90) produced
-    # ~40% peak-to-trough swing in firmwide expenses Dec 2025 → Jan/Feb 2026
+    # ~40% peak-to-trough swing in firmwide expenses Dec → Jan/Feb
     # ($782M → $444M visibly), which read as a data bug to any CFO. The
     # Q4 boost is also redundant with DEMO_OVERRIDES.seasonal_anomalies which
-    # already adds +8%/+12% to Nov/Dec. New ranges produce ~12-15% peak-to-trough
+    # already adds +8%/+12% to the two dip months. New ranges produce ~12-15% peak-to-trough
     # which is realistic for Tier-1 consulting T&E seasonality and aligns with
     # the gold_regional_pnl column comment "Q4 spike (Nov/Dec ~22% over)".
     month = txn_date.month
@@ -2665,7 +2696,7 @@ for i in range(270000):
     #      - London / Bangkok: deflators (under budget)
     #    Effective multiplier on a billable row in NYC = 1.28 × 1.42 = ~1.82.
     #    Non-billable row in NYC = 1.28.
-    # 2) Seasonal anomalies (Nov + Dec 2025 firmwide expense overage).
+    # 2) Seasonal anomalies (anchor−6/anchor−5 month firmwide expense overage).
     # Plausibility envelope semantic invariant: T&E hotels/airlines/meals are
     # STAFF expense, NOT client-billable. Only categories that legitimately
     # pass through to clients (entertainment, project supplies, occasional
@@ -3184,7 +3215,7 @@ for i in range(150):
         f"{dept} - {m['practice_area']} - {m['region']}",
         dept,
         f"Manager {random.randint(1, 200)}",
-        date(2020, 1, 1), date(2099, 12, 31),
+        date(ANCHOR_YEAR - 6, 1, 1), date(2099, 12, 31),
         "1000", rand_ts(),
         m["region"], m["location"],
     ))
@@ -3216,7 +3247,7 @@ for i in range(60):
         uid(), f"PC-{i+1:04d}",
         f"{m['practice_area']} - {m['industry']} - {m['region']}",
         f"Leader {random.randint(1, 100)}",
-        date(2020, 1, 1), date(2099, 12, 31),
+        date(ANCHOR_YEAR - 6, 1, 1), date(2099, 12, 31),
         "1000", rand_ts(),
         m["region"], m["location"],
     ))
@@ -3369,7 +3400,7 @@ print(f"  {'TOTAL':45s} {total_rows:>12,} rows")
 print()
 print(f"Schema: {CATALOG}.{SCHEMA}")
 print(f"Tables: {len(tables)}")
-print(f"Date range: 2023-03 through 2026-02")
+print(f"Date range: {DATE_START:%Y-%m} through {DATE_END:%Y-%m}")
 print()
 
 # Revenue sanity check

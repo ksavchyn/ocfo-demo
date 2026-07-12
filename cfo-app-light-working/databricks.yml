@@ -67,6 +67,25 @@ variables:
     description: "Schema name for the demo data (under {catalog})."
     default: "cfo_proserv"
 
+  as_of_mode:
+    description: |
+      As-of anchor mode for the data pipeline's engineered narrative.
+      "dynamic" (default) — each run anchors the dataset to the run date; all
+      narrative beats are keyed as month offsets from the anchor, so the story
+      lands on the same relative months whenever the pipeline runs. Pairs with
+      the monthly schedule on the cfo_data_pipeline job.
+      "anchored" — freeze override: pins the anchor to as_of_date so the
+      dataset is byte-identical across runs (e.g. demo freeze before a big
+      meeting).
+    default: "dynamic"
+
+  as_of_date:
+    description: |
+      ISO date (YYYY-MM-DD) used as the frozen anchor when as_of_mode is
+      "anchored". Ignored in "dynamic" mode. Empty falls back to 2026-05-17
+      (the historical fixed anchor).
+    default: ""
+
   skip_hydrate_bronze:
     description: |
       Set to "true" to skip synthetic bronze generation on the next pipeline run.
@@ -151,6 +170,15 @@ resources:
           5. generate_insights           — Claude orchestrator over Genie, populates gold_persona_insights
           6. validate_consistency        — prose-vs-data drift checks on generated insights
           7. refresh_dashboards          — refreshes Lakeview dashboards against fresh data
+      # Monthly refresh — re-anchors the synthetic dataset to the run date
+      # (as_of_mode="dynamic" default) so the engineered story always sits at
+      # the same relative months behind "today". Runs at 06:00 UTC on the 1st
+      # of each month. Set as_of_mode="anchored" (+ as_of_date) to freeze the
+      # data; the schedule then simply regenerates the same frozen snapshot.
+      schedule:
+        quartz_cron_expression: "0 0 6 1 * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
       tasks:
         - task_key: hydrate_bronze
           notebook_task:
@@ -161,6 +189,8 @@ resources:
               # When "true", notebook exits without writing — preserves
               # customer_mapping.py's bronze_* views as the data source.
               CFO_SKIP_HYDRATE_BRONZE: ${var.skip_hydrate_bronze}
+              CFO_AS_OF_MODE: ${var.as_of_mode}
+              CFO_AS_OF_DATE: ${var.as_of_date}
         - task_key: build_silver_gold
           depends_on:
             - task_key: hydrate_bronze
@@ -169,6 +199,8 @@ resources:
             base_parameters:
               CFO_CATALOG: ${var.catalog}
               CFO_SCHEMA_NAME: ${var.schema_name}
+              CFO_AS_OF_MODE: ${var.as_of_mode}
+              CFO_AS_OF_DATE: ${var.as_of_date}
         - task_key: envelope_safety_net
           depends_on:
             - task_key: build_silver_gold

@@ -307,8 +307,10 @@ _MONTHS = ["January", "February", "March", "April", "May", "June",
 def _demo_date_context() -> dict:
     if "ctx" in _DATE_ANCHOR_CACHE:
         return _DATE_ANCHOR_CACHE["ctx"]
-    from datetime import date
-    as_of_str = "2026-05-15"  # fallback matches generator ANCHOR_DATE
+    from datetime import date, timedelta
+    # Fallback if the data-derived lookup is unavailable: with a dynamic anchor
+    # the least wrong guess is "recent data" — yesterday (mirrors demo_anchor).
+    as_of_str = (date.today() - timedelta(days=1)).isoformat()
     try:
         import demo_anchor
         wid = os.environ.get("SQL_WAREHOUSE_ID", "")

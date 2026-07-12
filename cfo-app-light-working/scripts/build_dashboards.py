@@ -21,6 +21,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 
@@ -44,10 +45,10 @@ def build_one(src: Path, out: Path, target_catalog: str, target_schema: str) -> 
     new_text, n = re.subn(re.escape(SOURCE_FQN_LITERAL), target_fqn, text)
 
     # Anchor wall-clock CURRENT_DATE() to the dataset's own as-of date. The demo
-    # data is a FROZEN snapshot; with CURRENT_DATE() the dashboards' "last 6
-    # months" windows and "latest month" KPI tiles drift into the partial
-    # in-progress month, cratering the trend charts (~-50% false drop) and
-    # doubling DSO. We replace it with a data-derived scalar subquery
+    # data is anchored to its generation date (dynamic anchor, refreshed
+    # monthly); with CURRENT_DATE() the dashboards' "last 6 months" windows and
+    # "latest month" KPI tiles drift into the partial in-progress month,
+    # cratering the trend charts (~-50% false drop) and doubling DSO. We replace it with a data-derived scalar subquery
     # (MAX(work_date)) so every environment — demo or customer — anchors to its
     # own latest data, with no hardcoded date. Lambda repl avoids re.sub escape
     # handling; the subquery has no quotes/braces so JSON stays valid.
@@ -55,6 +56,22 @@ def build_one(src: Path, out: Path, target_catalog: str, target_schema: str) -> 
     new_text, n_dates = re.subn(r"CURRENT_DATE\(\)", lambda _m: as_of_sql, new_text)
     if n_dates:
         print(f"    {src.name}: anchored {n_dates} CURRENT_DATE() -> data as-of subquery")
+
+    # Re-key the static "Forecast" vertical-line annotation (marks where actuals
+    # end and forecast begins on the expense-trend charts). Annotation dataValues
+    # are literals — Lakeview supports no expression there — so the source file's
+    # date is just a placeholder (like SOURCE_FQN_LITERAL). Rebuild it as the
+    # 8th of the in-progress month at build time (same one-week-in offset the
+    # source used relative to its anchor), which tracks the dynamic data anchor
+    # since dashboards are rebuilt at every deploy.
+    forecast_boundary = date.today().replace(day=8).isoformat()
+    new_text, n_annot = re.subn(
+        r'"dataValue": "\d{4}-\d{2}-\d{2}T00:00:00\.000"',
+        f'"dataValue": "{forecast_boundary}T00:00:00.000"',
+        new_text,
+    )
+    if n_annot:
+        print(f"    {src.name}: re-keyed {n_annot} forecast-boundary annotation(s) -> {forecast_boundary}")
 
     # Sanity: result should still parse as valid JSON
     try:
