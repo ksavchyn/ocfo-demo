@@ -170,7 +170,7 @@ Wall-clock: 30 min. App, dashboards, and Genie now point at `<your-catalog>.cfo_
 
 ---
 
-## Step 4 (optional) — Schedule recurring refreshes
+## Step 4 — Refresh schedule (enabled by default)
 
 If your underlying data updates regularly, schedule the `cfo_data_pipeline` job so silver/gold + the chip pre-cache stay fresh. A monthly schedule (1st of the month, 06:00 UTC) now ships enabled by default in `databricks.yml`; adjust or pause it under Workflows → `cfo_data_pipeline` → Schedule.
 
