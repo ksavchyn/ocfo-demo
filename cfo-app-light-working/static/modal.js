@@ -62,6 +62,10 @@ function getCurrentPage() {
     console.log('[MODAL DEBUG] getCurrentPage - pathname:', path);
     console.log('[MODAL DEBUG] getCurrentPage - full URL:', window.location.href);
 
+    if (path.includes('ai-cost-governance')) {
+        console.log('[MODAL DEBUG] Detected AI-COST page');
+        return 'ai';
+    }
     if (path.includes('finance-deepdive')) {
         console.log('[MODAL DEBUG] Detected FINANCE page');
         return 'finance';
@@ -821,7 +825,16 @@ function addFormattedMessage(sender, content) {
 }
 
 // Format markdown content
+// Repair UTF-8 that got mis-decoded as Latin-1 (mojibake): "Ã—"→"×", "â€""→"—", "â€™"→"’", etc.
+// The gateway/stream occasionally hands us double-encoded bytes; decodeURIComponent(escape())
+// round-trips them back to the intended characters. Guarded so valid text is never corrupted.
+function fixMojibake(text) {
+    if (!text || !/[Ãâ€]/.test(text)) return text;   // only touch strings that show the tell-tale bytes
+    try { return decodeURIComponent(escape(text)); } catch (e) { return text; }
+}
+
 function formatMarkdown(text) {
+    text = fixMojibake(text);
     // Use marked.js for proper markdown parsing if available
     if (typeof marked !== 'undefined') {
         // Configure marked for consistent output
@@ -859,12 +872,38 @@ function formatMarkdown(text) {
         html = html.replace(/<pre>/g, '<pre style="background: #1e2329; padding: 10px; border-radius: 4px; margin: 8px 0; overflow-x: auto;">');
         html = html.replace(/<code>/g, '<code style="font-size: 12px; font-family: monospace;">');
 
-        // Style tables
-        html = html.replace(/<table>/g, '<table style="border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px;">');
+        // Style tables — wrap in a horizontal-scroll container so WIDE tables (many columns)
+        // scroll inside the modal instead of bleeding past its right edge.
+        html = html.replace(/<table>/g, '<div style="overflow-x:auto; max-width:100%; margin:12px 0;"><table style="border-collapse: collapse; width: auto; min-width:100%; font-size: 13px;">');
+        html = html.replace(/<\/table>/g, '</table></div>');
         html = html.replace(/<thead>/g, '<thead style="background: #f3f4f6; border-bottom: 2px solid #d1d5db;">');
         html = html.replace(/<th>/g, '<th style="padding: 8px 12px; text-align: left; font-weight: 600;">');
         html = html.replace(/<td>/g, '<td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">');
         html = html.replace(/<tr>/g, '<tr style="border-bottom: 1px solid #e5e7eb;">');
+
+        // Cap long tables at 8 body rows (they arrive already ranked) + a muted
+        // "+N more … Export CSV" caption. Avoids a wall of rows / nested scroll; full
+        // data is one Export-CSV click away. DOM-based so it's robust to the inline styles.
+        try {
+            const MAX_ROWS = 8;
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            doc.querySelectorAll("table").forEach((tbl) => {
+                const body = tbl.tBodies[0];
+                if (!body) return;
+                const trs = Array.from(body.rows);
+                if (trs.length <= MAX_ROWS) return;
+                const hidden = trs.length - MAX_ROWS;
+                trs.slice(MAX_ROWS).forEach((tr) => tr.remove());
+                const nCols = (tbl.rows[0] && tbl.rows[0].cells.length) || 1;
+                const note = body.insertRow();
+                const td = note.insertCell();
+                td.colSpan = nCols;
+                td.style.cssText = "padding:8px 12px; font-size:12px; color:#6b7280; font-style:italic; border-bottom:none;";
+                td.textContent = `+${hidden} more row${hidden === 1 ? "" : "s"} — use Export CSV for the full list`;
+            });
+            // Serialize just the body content back out.
+            html = doc.body.innerHTML;
+        } catch (e) { /* if DOMParser unavailable, fall through with the full table */ }
 
         return html;
     }

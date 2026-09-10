@@ -431,10 +431,11 @@
     .data-table {
         width: 100%; /* Full width to align with dashboard */
         max-width: 100%;
-        background: var(--db-background-secondary);
-        border-radius: var(--radius-lg);
+        background: #fff;
+        border: 1px solid #e7ecee;
+        border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 1px 3px rgba(11,32,38,.05);
         margin: 0;
     }
 
@@ -444,21 +445,26 @@
         table-layout: fixed;
     }
 
+    /* Leaner table styling — matched to the AI Cost tab's .ai-table (Kat's preferred look):
+       transparent uppercase header with orange top-border, tighter padding, smaller type. */
     .data-table th {
-        background: #f3f4f6 !important;
-        color: #111827 !important;
-        padding: 10px 12px; /* Slightly reduced padding */
+        background: transparent !important;
+        color: #5a6b72 !important;
+        padding: 9px 10px;
         text-align: left;
         font-weight: 600;
-        font-size: 0.9rem; /* Smaller font size */
-        border-bottom: 2px solid #ff5f46;  /* Orange accent line matching finance page */
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+        border-top: 2px solid #ff5f46;
+        border-bottom: 1px solid #e7ecee;
     }
 
     .data-table td {
-        padding: 10px 12px; /* Slightly reduced padding */
-        color: #1f2937;
-        font-size: 0.875rem; /* Smaller font size */
-        border-bottom: 1px solid #e5e7eb;
+        padding: 9px 10px;
+        color: #1b2f36;
+        font-size: 12.5px;
+        border-bottom: 1px solid #f0f3f4;
     }
 
     .data-table td:last-child,
@@ -468,7 +474,7 @@
     }
 
     .data-table tr:hover {
-        background: #f3f4f6;
+        background: #fafbfb;
     }
 
     /* Variance color coding */

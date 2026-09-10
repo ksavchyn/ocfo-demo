@@ -54,6 +54,11 @@ GENIE_CONFIG_DIR = THIS_DIR.parent / "genie_config"
 SPACE_ID_FILE = THIS_DIR / "merged_space_id.json"
 DESCRIPTION_BYTE_LIMIT = 16384
 
+# Genie hard-caps example queries (example_question_sqls) at 100 per space. We
+# emit one entry per question variant, so cap variants per query to stay under
+# it: 28 queries × ≤3 = 84 (16 headroom). Schema-independent — protects prod too.
+MAX_VARIANTS_PER_QUERY = 3
+
 DEFAULT_TITLE = "ProServ OCFO"
 
 
@@ -226,6 +231,7 @@ def build_merged_description(schema_override: str | None = None) -> str:
         "Pipeline / backlog — `gold_enterprise_metrics.pipeline_revenue` only",
         "Expense aggregation — `gold_regional_pnl.*_expenses` only, NEVER `silver_fact_expenses`",
         'Two distinct "plan" baselines — never conflate',
+        "AI cost & governance — `gold_ai_cost_*` views",
         "Output guidance",
         "Instructions you must follow when providing summaries",
     ]
@@ -286,7 +292,13 @@ def build_example_queries(schema_override: str | None = None) -> list[dict]:
     queries_yml = yaml.safe_load((GENIE_CONFIG_DIR / "trusted_queries.yml").read_text())
     out: list[dict] = []
     for q in queries_yml.get("queries", []):
-        variants = q["question_variants"]
+        # Cap variants per query. Each variant becomes one Genie example-query
+        # entry, and the API enforces a hard max of 100 instructions per space
+        # (example_question_sqls). With 28 queries the uncapped variant count is
+        # 120 → rejected. Variants are alternate phrasings of the SAME question,
+        # so keeping the first MAX_VARIANTS_PER_QUERY loses no coverage. 3 → 84
+        # total (16 headroom); schema-independent, so this also protects prod.
+        variants = q["question_variants"][:MAX_VARIANTS_PER_QUERY]
         sql = _rewrite_schema_in_text(q["sql"].strip(), schema_override)
         for idx, variant in enumerate(variants):
             local_id = f"{q['id']}__v{idx:02d}"

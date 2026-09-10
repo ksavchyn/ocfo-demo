@@ -3563,6 +3563,532 @@ spark.sql(f"SELECT partner_name, ROUND(SUM(revenue_managed), 2) AS total_revenue
 
 # MAGIC %md
 # MAGIC ---
+# MAGIC # AI Cost & Governance — Gold Layer
+# MAGIC
+# MAGIC **Portability contract:** these views read ONLY real `system.*` field paths off the
+# MAGIC `bronze_ai_*` look-alikes. To run on a customer's own data, repoint the four
+# MAGIC source refs (`bronze_ai_gateway_usage`, `bronze_billing_usage`,
+# MAGIC `bronze_ai_gateway_external_model_spend`, `bronze_ai_list_prices`) at `system.ai_gateway.*`
+# MAGIC / `system.billing.*` — no other change. `bronze_ai_budget_policy` maps to the customer's
+# MAGIC own budget-policy config (join key `budget_policy_id` already lands in
+# MAGIC `billing.usage.usage_metadata.budget_policy_id`).
+# MAGIC
+# MAGIC Cost is DERIVED two ways (mirrors the OOB "Unity AI Gateway Usage Dashboard v0.5"):
+# MAGIC - **Databricks-hosted (PPT):** `billing.usage.usage_quantity` (DBU) × `list_prices` effective price.
+# MAGIC - **External foundation models:** native USD from `external_model_spend.usage_quantity`.
+# MAGIC
+# MAGIC Attribution is MULTI-SIGNAL COALESCE onto `project_id` / `cost_center` (see the
+# MAGIC `gold_ai_cost_observability` CTE comments). Every downstream tile derives from these
+# MAGIC views with a stateable formula.
+
+# COMMAND ----------
+
+# DBTITLE 1,Gold: AI Cost Observability (the spine — two-leg cost, multi-signal attribution)
+spark.sql(f"""
+CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability AS
+WITH
+-- Effective DBU price (mirrors system.billing.list_prices → pricing.effective_list.default)
+dbu_price AS (
+    SELECT sku_name, pricing.effective_list.default AS price
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_list_prices
+    WHERE usage_unit = 'DBU'
+),
+-- LEG 1 — Databricks-hosted inference: cost = DBU × list price. Attribution signals
+-- pulled straight from real billing.usage paths.
+hosted AS (
+    SELECT
+        b.usage_date,
+        DATE_TRUNC('month', b.usage_date)                             AS fiscal_period,
+        b.workspace_id,
+        b.billing_origin_product,
+        b.usage_metadata.endpoint_name                                AS endpoint_name,
+        CAST(NULL AS STRING) AS destination_model_raw,   -- billing.usage has no destination_model; symmetry with external leg
+        b.usage_metadata.budget_policy_id                             AS budget_policy_id,
+        b.identity_metadata.run_by                                    AS run_by,
+        -- attribution signals (in priority order): request/service tag → policy → run_by
+        b.custom_tags['engagement']                                   AS tag_engagement,
+        b.custom_tags['cost_center']                                  AS tag_cost_center,
+        CAST(b.usage_quantity AS DOUBLE) * COALESCE(pr.price, 0)      AS cost_usd,
+        CAST(b.usage_quantity AS DOUBLE)                              AS dbu,
+        'HOSTED'                                                      AS cost_leg
+    FROM {CATALOG}.{SCHEMA}.bronze_billing_usage b
+    LEFT JOIN dbu_price pr ON b.sku_name = pr.sku_name
+    WHERE b.billing_origin_product IN ('MODEL_SERVING','AI_FUNCTIONS','VECTOR_SEARCH','GENIE')
+),
+-- LEG 2 — External foundation models: native USD from external_model_spend.
+external AS (
+    SELECT
+        e.usage_date,
+        DATE_TRUNC('month', e.usage_date)                             AS fiscal_period,
+        e.workspace_id,
+        'MODEL_SERVING'                                               AS billing_origin_product,
+        e.usage_metadata.endpoint_name                               AS endpoint_name,
+        e.usage_metadata.model                                       AS destination_model_raw,
+        CAST(NULL AS STRING)                                         AS budget_policy_id,
+        e.identity_metadata.run_by                                   AS run_by,
+        e.custom_tags.request_tags['engagement']                     AS tag_engagement,
+        e.custom_tags.endpoint_tags['cost_center']                   AS tag_cost_center,
+        CAST(e.usage_quantity AS DOUBLE)                             AS cost_usd,
+        CAST(0 AS DOUBLE)                                           AS dbu,
+        'EXTERNAL'                                                  AS cost_leg
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_gateway_external_model_spend e
+),
+unioned AS (
+    SELECT * FROM hosted
+    UNION ALL
+    SELECT * FROM external
+),
+-- Budget-policy → (cost_center, engagement) resolution, for the policy attribution signal.
+policy AS (
+    SELECT budget_policy_id, scope_type, cost_center AS policy_cost_center, engagement_id AS policy_engagement
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_budget_policy
+),
+-- run_by → employee cost_center + org context (latest snapshot), for the identity
+-- fallback signal. Carries practice/region/location/industry so surfaces that attribute
+-- by run_as (Genie, AI Functions) — which have NO engagement and whose cost_center is
+-- many-to-many across practices — can still resolve a practice/region via the person who
+-- ran the workload (employee→practice IS 1:1). This is the real-world run_as rollup.
+emp_cc AS (
+    SELECT employee_id, cost_center, practice_area, region, location, industry
+    FROM {CATALOG}.{SCHEMA}.{SILVER_PREFIX}dim_employees
+    WHERE is_latest_snapshot = TRUE
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY silver_load_timestamp DESC) = 1
+),
+attributed AS (
+    SELECT
+        u.*,
+        pol.policy_cost_center,
+        pol.policy_engagement,
+        ec.cost_center                                                AS run_by_cost_center,
+        -- run_by employee org context, for the run_as practice/region fallback below.
+        ec.practice_area                                              AS run_by_practice_area,
+        ec.region                                                     AS run_by_region,
+        ec.location                                                   AS run_by_location,
+        ec.industry                                                   AS run_by_industry,
+        -- MULTI-SIGNAL COALESCE for ENGAGEMENT (billable/client lens):
+        --   1) request/service tag on the row  2) engagement-scoped budget policy
+        COALESCE(u.tag_engagement, pol.policy_engagement)             AS attributed_engagement,
+        -- MULTI-SIGNAL COALESCE for COST-CENTER (internal chargeback lens):
+        --   1) tag  2) policy cost_center  3) run_by's employee cost_center
+        COALESCE(u.tag_cost_center, pol.policy_cost_center, ec.cost_center) AS attributed_cost_center,
+        -- GOVERNED = spend traceable via an EXPLICIT control the customer set:
+        -- a request/service/endpoint tag OR a serverless budget policy. run_by→cost_center
+        -- inference does NOT count (it's a best-effort backfill, not governance). Untagged,
+        -- policy-less traffic = shadow AI → the Governance Coverage gap.
+        CASE WHEN u.tag_engagement IS NOT NULL OR u.tag_cost_center IS NOT NULL
+                  OR u.budget_policy_id IS NOT NULL
+             THEN TRUE ELSE FALSE END                                 AS is_governed
+    FROM unioned u
+    LEFT JOIN policy pol ON u.budget_policy_id = pol.budget_policy_id
+    LEFT JOIN emp_cc ec  ON u.run_by = ec.employee_id
+)
+SELECT
+    a.usage_date,
+    a.fiscal_period,
+    a.workspace_id,
+    a.billing_origin_product,
+    a.cost_leg,
+    a.endpoint_name,
+    -- Provider of the destination model (external leg carries usage_metadata.model;
+    -- hosted leg has none → the workload runs on Databricks-hosted OSS models = 'Meta',
+    -- the maker of the Llama family that backs Databricks-hosted inference here). Lets the
+    -- by-office chart's "model type" toggle split Frontier into OpenAI/Anthropic/Gemini.
+    CASE
+        WHEN a.destination_model_raw LIKE '%claude%'  THEN 'Anthropic'
+        WHEN a.destination_model_raw LIKE '%gpt%'     THEN 'OpenAI'
+        WHEN a.destination_model_raw LIKE '%gemini%'  THEN 'Google'
+        WHEN a.destination_model_raw LIKE '%llama%'   THEN 'Meta'
+        WHEN a.destination_model_raw LIKE '%qwen%'    THEN 'Alibaba'
+        WHEN a.destination_model_raw LIKE '%gte%' OR a.destination_model_raw LIKE '%bge%' THEN 'Databricks'
+        ELSE 'Databricks'
+    END                                                              AS provider,
+    a.attributed_engagement                                          AS project_id,
+    -- engagement business context (client / practice / region) via dim_projects
+    p.project_name,
+    p.client_id,
+    p.customer                                                       AS client_name,
+    -- Practice/region resolve via engagement first (billable lens); else via the run_by
+    -- employee (run_as lens, for Genie/AI-Functions which have no engagement). Employee→
+    -- practice is 1:1, so this is a clean, defensible attribution — NOT a cost_center guess
+    -- (cost_center is many-to-many across practices). Untagged rows with no run_by match
+    -- stay NULL → Unattributed → the shadow-AI / governance-coverage story.
+    COALESCE(p.practice_area, a.run_by_practice_area)                AS practice_area,
+    COALESCE(p.region, a.run_by_region)                              AS engagement_region,
+    COALESCE(p.location, a.run_by_location)                          AS engagement_location,
+    COALESCE(p.industry, a.run_by_industry)                          AS engagement_industry,
+    p.project_type                                                   AS contract_type,
+    p.total_contract_value,
+    a.attributed_cost_center                                         AS cost_center,
+    ccm.department_category                                          AS cost_center_department,
+    a.run_by,
+    ROUND(a.cost_usd, 2)                                             AS cost_usd,
+    ROUND(a.dbu, 4)                                                  AS dbu,
+    -- Did any attribution signal (incl. run_by inference) resolve a business entity?
+    CASE WHEN a.attributed_engagement IS NOT NULL OR a.attributed_cost_center IS NOT NULL
+         THEN TRUE ELSE FALSE END                                    AS is_attributed,
+    -- Governed via an EXPLICIT control (tag or budget policy) — the Governance Coverage numerator.
+    a.is_governed,
+    CURRENT_TIMESTAMP()                                              AS last_updated
+FROM attributed a
+LEFT JOIN {CATALOG}.{SCHEMA}.{SILVER_PREFIX}dim_projects p
+    ON a.attributed_engagement = p.project_id
+LEFT JOIN {CATALOG}.{SCHEMA}.bronze_cost_center_mapping ccm
+    ON a.attributed_cost_center = ccm.cost_center_code
+""")
+print("gold_ai_cost_observability created.")
+apply_table_metadata(
+    f"{GOLD_PREFIX}ai_cost_observability",
+    "The AI cost spine: one row per (usage_date × workspace × surface × attribution slice) of GenAI "
+    "inference cost, derived from gateway/billing system tables. Cost = DBU × list price (Databricks-hosted) "
+    "or native USD (external models). Multi-signal attribution lands each row on a project_id (engagement/"
+    "client/practice) and/or cost_center. is_attributed drives the Governance Coverage KPI. Portable: "
+    "repoint the bronze_ai_* sources at system.ai_gateway.* / system.billing.* to run on real data.",
+    {
+        "cost_usd": "Derived AI inference cost in USD. Hosted = billing DBU × list_prices effective price; External = native USD from external_model_spend.",
+        "cost_leg": "HOSTED (Databricks-hosted, DBU-priced) or EXTERNAL (provider-billed native USD).",
+        "project_id": "Attributed engagement (COALESCE of request/service tag, then engagement-scoped budget policy). NULL when untagged.",
+        "cost_center": "Attributed cost center (COALESCE of tag, budget-policy cost_center, then run_by employee cost_center).",
+        "billing_origin_product": "MODEL_SERVING / AI_FUNCTIONS / VECTOR_SEARCH / GENIE — the surface that produced the spend.",
+        "provider": "Model provider: Anthropic / OpenAI / Gemini (external frontier) or Meta (Databricks-hosted OSS Llama). Powers the 'model type' slicing of the by-office chart.",
+        "is_attributed": "TRUE if any signal (incl. run_by inference) resolved a business entity.",
+        "is_governed": "TRUE if spend is traceable via an EXPLICIT control (request/service tag or budget policy) — NOT run_by inference. Governance Coverage = governed $ / total $; the gap = shadow AI.",
+    },
+)
+spark.sql(f"SELECT COUNT(*) rows, ROUND(SUM(cost_usd),0) total_usd, ROUND(AVG(CASE WHEN is_attributed THEN 1 ELSE 0 END)*100,1) pct_attributed FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability").show()
+
+# COMMAND ----------
+
+# DBTITLE 1,Gold: AI Cost by Engagement (client/billable lens + recover-reprice)
+# MAGIC %md
+# MAGIC ### `gold_ai_cost_by_engagement`
+# MAGIC Engagement-grain rollup with the business context needed for the "Client AI Spend
+# MAGIC vs. Invoice Value" and "Top Recoverable AI Spend" panels. The recover-vs-reprice
+# MAGIC lane is derived from `contract_type` (T&M / pass-through → recoverable now; Fixed
+# MAGIC Price → margin review / reprice at renewal). Provider concentration comes from the
+# MAGIC per-engagement destination-model spend on the gateway rows.
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_by_engagement AS
+WITH eng_cost AS (
+    SELECT
+        project_id, client_id, client_name, project_name, practice_area,
+        engagement_region, engagement_location, engagement_industry,
+        contract_type, total_contract_value,
+        SUM(cost_usd)                                                AS ai_cost_usd,
+        SUM(CASE WHEN cost_leg = 'EXTERNAL' THEN cost_usd ELSE 0 END) AS external_ai_cost_usd
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability
+    WHERE project_id IS NOT NULL
+    GROUP BY project_id, client_id, client_name, project_name, practice_area,
+             engagement_region, engagement_location, engagement_industry,
+             contract_type, total_contract_value
+),
+-- Provider concentration: top PROVIDER share per engagement (gateway rows carry
+-- request_tags['engagement'] + destination_model). A CFO reasons per PROVIDER
+-- (Anthropic / OpenAI / Meta), not per individual model, so derive provider from the
+-- model name and group on it — >50% on one provider = operational resilience risk.
+eng_gw AS (
+    SELECT
+        request_tags['engagement']                                   AS project_id,
+        destination_model,
+        CASE
+            WHEN destination_model LIKE '%claude%'  THEN 'Anthropic'
+            WHEN destination_model LIKE '%gpt%'     THEN 'OpenAI'
+            WHEN destination_model LIKE '%gemini%'  THEN 'Google'
+            WHEN destination_model LIKE '%llama%'   THEN 'Meta'
+            WHEN destination_model LIKE '%qwen%'    THEN 'Alibaba'
+            WHEN destination_model LIKE '%gte%' OR destination_model LIKE '%bge%' THEN 'Databricks'
+            ELSE 'Databricks'
+        END                                                          AS provider
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_gateway_usage
+    WHERE request_tags['engagement'] IS NOT NULL
+),
+-- Distinct endpoints/models per engagement → the actionable "where to set fallbacks" list.
+eng_endpoints AS (
+    SELECT e.request_tags['engagement'] AS project_id,
+           CONCAT_WS(', ', COLLECT_SET(e.endpoint_name))            AS endpoints,
+           CONCAT_WS(', ', COLLECT_SET(e.destination_model))        AS models_used
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_gateway_usage e
+    WHERE e.request_tags['engagement'] IS NOT NULL
+    GROUP BY e.request_tags['engagement']
+),
+eng_provider AS (
+    SELECT project_id, dominant_model, provider_share_pct
+    FROM (
+        SELECT
+            project_id,
+            provider                                                 AS dominant_model,
+            COUNT(*)                                                 AS req_ct,
+            ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY project_id), 1) AS provider_share_pct,
+            ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY COUNT(*) DESC) AS rn
+        FROM eng_gw
+        GROUP BY project_id, provider
+    ) WHERE rn = 1
+),
+-- Invoice value + delivery hours + margin (from project profitability) — powers the
+-- AI Value Lens Client-Delivery scatter (x = AI $ / delivery hour, y = margin, bubble = TCV).
+eng_invoice AS (
+    SELECT project_id, actual_revenue, actual_margin, actual_margin_pct,
+           billable_hours, actual_hours
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}project_profitability
+)
+SELECT
+    c.project_id,
+    c.project_name,
+    c.client_id,
+    c.client_name,
+    c.practice_area,
+    c.engagement_region,
+    c.engagement_location,
+    c.engagement_industry,
+    c.contract_type,
+    c.total_contract_value,
+    ROUND(c.ai_cost_usd, 2)                                          AS ai_cost_usd,
+    ROUND(c.external_ai_cost_usd, 2)                                 AS external_ai_cost_usd,
+    ROUND(COALESCE(inv.actual_revenue, 0), 2)                        AS engagement_revenue,
+    -- AI spend as % of the engagement's invoice/revenue
+    CASE WHEN COALESCE(inv.actual_revenue, 0) > 0
+         THEN ROUND(c.ai_cost_usd / inv.actual_revenue * 100, 2) ELSE NULL END AS ai_pct_of_invoice,
+    -- AI Value Lens (Client-Delivery scatter) — all from universal consulting data.
+    ROUND(COALESCE(inv.billable_hours, inv.actual_hours, 0), 1)       AS delivery_hours,
+    ROUND(COALESCE(inv.actual_margin, 0), 2)                          AS engagement_margin,
+    COALESCE(inv.actual_margin_pct, 0)                               AS engagement_margin_pct,
+    -- x-axis: AI spend per delivery hour (Method: attributed AI $ ÷ timecard delivery hours)
+    CASE WHEN COALESCE(inv.billable_hours, inv.actual_hours, 0) > 0
+         THEN ROUND(c.ai_cost_usd / COALESCE(inv.billable_hours, inv.actual_hours), 2) ELSE NULL END AS ai_cost_per_delivery_hour,
+    prov.dominant_model                                              AS dominant_provider,
+    prov.provider_share_pct                                          AS pct_on_one_provider,
+    CASE WHEN prov.provider_share_pct > 50 THEN TRUE ELSE FALSE END  AS provider_concentration_flag,
+    ep.endpoints                                                     AS endpoints,   -- where to set fallbacks
+    ep.models_used                                                   AS models_used,
+    -- RECOVER vs REPRICE lane (Method: contract_type drives billability of AI cost):
+    --   Time & Materials / Outcome-Based → pass-through, recoverable NOW (usage summary)
+    --   Retainer → recoverable within retainer scope (review)
+    --   Fixed Price → absorbed; margin erosion, only lever is reprice at renewal
+    CASE
+        WHEN c.contract_type IN ('Time & Materials','Outcome-Based') THEN 'RECOVERABLE'
+        WHEN c.contract_type = 'Retainer'                            THEN 'REVIEW'
+        WHEN c.contract_type = 'Fixed Price'                         THEN 'REPRICE_AT_RENEWAL'
+        ELSE 'REVIEW'
+    END                                                              AS recoverability,
+    CASE
+        WHEN c.contract_type IN ('Time & Materials','Outcome-Based') THEN 'Generate Usage Summary'
+        WHEN c.contract_type = 'Fixed Price'                         THEN 'Flag for Margin Review'
+        ELSE 'Review'
+    END                                                              AS recommended_action,
+    CURRENT_TIMESTAMP()                                              AS last_updated
+FROM eng_cost c
+LEFT JOIN eng_provider prov  ON c.project_id = prov.project_id
+LEFT JOIN eng_endpoints ep   ON c.project_id = ep.project_id
+LEFT JOIN eng_invoice inv    ON c.project_id = inv.project_id
+""")
+print("gold_ai_cost_by_engagement created.")
+apply_table_metadata(
+    f"{GOLD_PREFIX}ai_cost_by_engagement",
+    "Engagement-grain AI cost with client/practice context, AI-spend-as-%-of-invoice, provider "
+    "concentration, a recover-vs-reprice lane derived from contract_type, and the AI Value Lens "
+    "Client-Delivery scatter inputs (AI $ per delivery hour, engagement margin). Powers 'Client AI Spend vs. "
+    "Invoice Value', 'Top Recoverable AI Spend', 'Provider Concentration', and the 'AI Value Lens' scatter. "
+    "One row per engagement.",
+    {
+        "ai_cost_usd": "Total attributed AI inference cost for this engagement in USD.",
+        "ai_pct_of_invoice": "AI cost as a percentage of the engagement's recognized revenue.",
+        "recoverability": "RECOVERABLE (T&M/Outcome pass-through — bill now), REVIEW (retainer), or REPRICE_AT_RENEWAL (fixed-fee — margin erosion, reprice lever only).",
+        "recommended_action": "Suggested CFO action for the nudge component. Flag-for-human-review, never auto-pricing.",
+        "dominant_provider": "Model/provider carrying the largest share of this engagement's gateway calls.",
+        "pct_on_one_provider": "Share of gateway calls on the dominant provider. >50% flags concentration risk.",
+        "delivery_hours": "Billable (fallback actual) delivery hours on the engagement, from timecards via project profitability.",
+        "engagement_margin": "Engagement margin in USD from the firm's project P&L (excludes AI cost — the y-axis of the Value Lens scatter).",
+        "ai_cost_per_delivery_hour": "AI spend per delivery hour = attributed AI $ / delivery hours. The x-axis of the AI Value Lens Client-Delivery scatter.",
+    },
+)
+spark.sql(f"SELECT COUNT(*) engagements, ROUND(SUM(ai_cost_usd),0) total_ai_usd FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_by_engagement").show()
+
+# COMMAND ----------
+
+# DBTITLE 1,Gold: AI Cost by Cost Center (internal chargeback + budget performance)
+# MAGIC %md
+# MAGIC ### `gold_ai_cost_by_cost_center`
+# MAGIC Internal chargeback lens + budget performance. Joins attributed cost-center spend to
+# MAGIC the customer's budget policies for utilization / at-risk. Powers "Enforce Internal
+# MAGIC Spend Controls" and the "Budgets At Risk" KPI.
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_by_cost_center AS
+WITH cc_spend AS (
+    SELECT
+        cost_center,
+        cost_center_department,
+        SUM(cost_usd)                                                AS ai_cost_usd,
+        -- trailing-12-month run rate (annualized) for budget comparison
+        SUM(CASE WHEN fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -12)
+                 THEN cost_usd ELSE 0 END)                           AS ttm_ai_cost_usd
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability
+    WHERE cost_center IS NOT NULL
+    GROUP BY cost_center, cost_center_department
+),
+cc_budget AS (
+    SELECT cost_center, CAST(annual_budget_usd AS DOUBLE) AS annual_budget_usd, budget_policy_id, policy_name
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_budget_policy
+    WHERE scope_type = 'COST_CENTER'
+)
+SELECT
+    s.cost_center,
+    s.cost_center_department,
+    b.budget_policy_id,
+    b.policy_name,
+    ROUND(s.ai_cost_usd, 2)                                          AS ai_cost_usd,
+    ROUND(s.ttm_ai_cost_usd, 2)                                      AS ttm_ai_cost_usd,
+    ROUND(COALESCE(b.annual_budget_usd, 0), 2)                       AS annual_budget_usd,
+    -- Budget utilization = TTM run-rate / annual budget
+    CASE WHEN COALESCE(b.annual_budget_usd, 0) > 0
+         THEN ROUND(s.ttm_ai_cost_usd / b.annual_budget_usd * 100, 1) ELSE NULL END AS budget_utilization_pct,
+    CASE
+        WHEN COALESCE(b.annual_budget_usd,0) > 0 AND s.ttm_ai_cost_usd / b.annual_budget_usd >= 1.0 THEN 'OVER_BUDGET'
+        WHEN COALESCE(b.annual_budget_usd,0) > 0 AND s.ttm_ai_cost_usd / b.annual_budget_usd >= 0.85 THEN 'AT_RISK'
+        WHEN COALESCE(b.annual_budget_usd,0) > 0 THEN 'ON_TRACK'
+        ELSE 'NO_POLICY'
+    END                                                              AS budget_status,
+    CURRENT_TIMESTAMP()                                              AS last_updated
+FROM cc_spend s
+LEFT JOIN cc_budget b ON s.cost_center = b.cost_center
+""")
+print("gold_ai_cost_by_cost_center created.")
+apply_table_metadata(
+    f"{GOLD_PREFIX}ai_cost_by_cost_center",
+    "Internal chargeback lens: AI cost by cost center with budget-policy utilization and at-risk status. "
+    "Powers 'Enforce Internal Spend Controls' and 'Budgets At Risk'. One row per cost center that ran AI.",
+    {
+        "ai_cost_usd": "Total AI cost attributed to this cost center (all history in window).",
+        "ttm_ai_cost_usd": "Trailing-12-month AI cost — the run-rate compared against the annual budget.",
+        "budget_utilization_pct": "TTM AI cost / annual budget policy limit.",
+        "budget_status": "OVER_BUDGET (>=100%), AT_RISK (>=85%), ON_TRACK, or NO_POLICY (spend with no budget set).",
+    },
+)
+
+# COMMAND ----------
+
+# DBTITLE 1,Gold: AI Cost Monthly Trend (cockpit hero + forecast base)
+# MAGIC %md
+# MAGIC ### `gold_ai_cost_monthly`
+# MAGIC Firmwide monthly time series for the cockpit hero (total AI spend, % of revenue,
+# MAGIC governance coverage, cost per active user) + the forecast base. % of revenue joins
+# MAGIC to gold_enterprise_metrics monthly revenue; active users = distinct requesters.
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_monthly AS
+WITH monthly AS (
+    SELECT
+        fiscal_period,
+        SUM(cost_usd)                                                AS ai_cost_usd,
+        SUM(CASE WHEN is_governed THEN cost_usd ELSE 0 END)          AS attributed_cost_usd,
+        SUM(CASE WHEN cost_leg = 'EXTERNAL' THEN cost_usd ELSE 0 END) AS external_cost_usd,
+        SUM(dbu)                                                     AS total_dbu
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability
+    GROUP BY fiscal_period
+),
+active_users AS (
+    SELECT DATE_TRUNC('month', event_time) AS fiscal_period,
+           COUNT(DISTINCT requester)       AS active_users
+    FROM {CATALOG}.{SCHEMA}.bronze_ai_gateway_usage
+    GROUP BY DATE_TRUNC('month', event_time)
+),
+firm_rev AS (
+    -- monthly firmwide revenue for the "% of revenue" tile (from the base model)
+    SELECT DATE_TRUNC('month', fiscal_period) AS fiscal_period, SUM(revenue) AS monthly_revenue
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}enterprise_metrics
+    GROUP BY DATE_TRUNC('month', fiscal_period)
+)
+SELECT
+    m.fiscal_period,
+    ROUND(m.ai_cost_usd, 2)                                          AS ai_cost_usd,
+    ROUND(m.external_cost_usd, 2)                                    AS external_cost_usd,
+    ROUND(m.total_dbu, 2)                                            AS total_dbu,
+    ROUND(m.attributed_cost_usd, 2)                                  AS attributed_cost_usd,
+    -- Governance Coverage = attributed $ / total $
+    CASE WHEN m.ai_cost_usd > 0 THEN ROUND(m.attributed_cost_usd / m.ai_cost_usd * 100, 1) ELSE NULL END AS governance_coverage_pct,
+    COALESCE(au.active_users, 0)                                     AS active_users,
+    -- Cost per Active User
+    CASE WHEN COALESCE(au.active_users,0) > 0 THEN ROUND(m.ai_cost_usd / au.active_users, 2) ELSE NULL END AS cost_per_active_user,
+    ROUND(COALESCE(fr.monthly_revenue, 0), 2)                        AS monthly_revenue,
+    -- AI spend as % of revenue (the headline "small but growing" number)
+    CASE WHEN COALESCE(fr.monthly_revenue,0) > 0 THEN ROUND(m.ai_cost_usd / fr.monthly_revenue * 100, 3) ELSE NULL END AS ai_pct_of_revenue,
+    CURRENT_TIMESTAMP()                                              AS last_updated
+FROM monthly m
+LEFT JOIN active_users au ON m.fiscal_period = au.fiscal_period
+LEFT JOIN firm_rev fr      ON m.fiscal_period = fr.fiscal_period
+ORDER BY m.fiscal_period
+""")
+print("gold_ai_cost_monthly created.")
+apply_table_metadata(
+    f"{GOLD_PREFIX}ai_cost_monthly",
+    "Firmwide monthly AI-cost time series: total spend, external spend, DBU, governance coverage, active "
+    "users, cost per active user, and AI spend as % of revenue. Powers the cockpit hero KPIs and the forecast "
+    "base. One row per fiscal_period (month).",
+    {
+        "ai_cost_usd": "Total firmwide AI inference cost for the month in USD.",
+        "governance_coverage_pct": "Attributed AI $ / total AI $ — the share of spend traceable to an engagement or cost center.",
+        "cost_per_active_user": "Monthly AI cost / distinct active gateway requesters.",
+        "ai_pct_of_revenue": "AI cost as a percentage of firmwide monthly revenue (the 'small but growing' headline).",
+    },
+)
+spark.sql(f"SELECT fiscal_period, ai_cost_usd, ai_pct_of_revenue, governance_coverage_pct, active_users, cost_per_active_user FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_monthly ORDER BY fiscal_period DESC LIMIT 6").show()
+
+# COMMAND ----------
+
+# DBTITLE 1,Gold: AI Cost by Practice (cockpit breakdown — OSS vs Frontier / model vs service)
+# MAGIC %md
+# MAGIC ### `gold_ai_cost_by_practice`
+# MAGIC Practice-grain breakdown for the "AI Spend vs. Budget by Practice" cockpit chart with
+# MAGIC both slicings the toggle needs (OSS vs Frontier via model tier; by service/surface).
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE OR REPLACE TABLE {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_by_practice AS
+WITH base AS (
+    SELECT
+        o.fiscal_period,
+        COALESCE(o.practice_area, 'Unattributed')                    AS practice_area,
+        o.billing_origin_product                                     AS service_type,
+        o.cost_usd,
+        o.cost_leg
+    FROM {CATALOG}.{SCHEMA}.{GOLD_PREFIX}ai_cost_observability o
+)
+SELECT
+    fiscal_period,
+    practice_area,
+    service_type,
+    -- OSS vs Frontier: external models + hosted Claude/GPT = frontier; llama/embeddings = OSS.
+    -- Derived from cost_leg (EXTERNAL always frontier) + service; kept simple + stateable.
+    CASE WHEN cost_leg = 'EXTERNAL' THEN 'Frontier' ELSE 'OSS' END    AS model_tier,
+    ROUND(SUM(cost_usd), 2)                                          AS ai_cost_usd,
+    CURRENT_TIMESTAMP()                                              AS last_updated
+FROM base
+GROUP BY fiscal_period, practice_area, service_type,
+         CASE WHEN cost_leg = 'EXTERNAL' THEN 'Frontier' ELSE 'OSS' END
+""")
+print("gold_ai_cost_by_practice created.")
+apply_table_metadata(
+    f"{GOLD_PREFIX}ai_cost_by_practice",
+    "Practice-grain AI cost with model-tier (OSS vs Frontier) and service-type slicings for the cockpit "
+    "'AI Spend by Practice' chart toggle. One row per (fiscal_period × practice × service_type × model_tier).",
+    {
+        "model_tier": "Frontier (external provider models) vs OSS (Databricks-hosted open models). Same spend, alternate slicing.",
+        "service_type": "MODEL_SERVING / AI_FUNCTIONS / VECTOR_SEARCH / GENIE — the AI surface.",
+        "ai_cost_usd": "AI cost for this practice/service/tier slice in USD.",
+    },
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ---
 # MAGIC # Persona Insights Cache Table (empty shell)
 # MAGIC The orchestrator notebook (`generate_insights.py`) populates this table.
 # MAGIC Creating the empty shell here ensures the app can read from it on a clean
@@ -3656,6 +4182,12 @@ gold_tables = [
     "gold_practice_area_summary",
     "gold_department_summary",
     "gold_partner_metrics",
+    # AI Cost & Governance layer
+    "gold_ai_cost_observability",
+    "gold_ai_cost_by_engagement",
+    "gold_ai_cost_by_cost_center",
+    "gold_ai_cost_monthly",
+    "gold_ai_cost_by_practice",
     "gold_persona_insights",
 ]
 

@@ -443,10 +443,11 @@
 
     .data-table {
         width: 100%;
-        background: #f9fafb;
-        border-radius: var(--radius-lg);
+        background: #fff;
+        border: 1px solid #e7ecee;
+        border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 1px 3px rgba(11,32,38,.05);
     }
 
     .data-table table {
@@ -500,21 +501,26 @@
         width: 15%;  /* Initiate Action */
     }
 
+    /* Leaner table styling — matched to the AI Cost tab's .ai-table (Kat's preferred look):
+       transparent uppercase header with orange top-border, tighter padding, smaller type. */
     .data-table th {
-        background: #f3f4f6 !important;
-        color: #111827 !important;
-        padding: 10px 12px; /* Slightly reduced padding */
+        background: transparent !important;
+        color: #5a6b72 !important;
+        padding: 9px 10px;
         text-align: left;
         font-weight: 600;
-        font-size: 0.9rem; /* Smaller font size */
-        border-bottom: 2px solid var(--db-accent-primary);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+        border-top: 2px solid #ff5f46;
+        border-bottom: 1px solid #e7ecee;
     }
 
     .data-table td {
-        padding: 10px 12px; /* Slightly reduced padding */
-        color: #1f2937;
-        font-size: 0.875rem; /* Smaller font size */
-        border-bottom: 1px solid #e5e7eb;
+        padding: 9px 10px;
+        color: #1b2f36;
+        font-size: 12.5px;
+        border-bottom: 1px solid #f0f3f4;
     }
 
     .data-table td:last-child,
@@ -524,7 +530,7 @@
     }
 
     .data-table tr:hover {
-        background: #f3f4f6;
+        background: #fafbfb;
     }
 
     .action-button {
@@ -1303,7 +1309,28 @@ console.log('[VERIFY] window.initiateNotification =', typeof window.initiateNoti
 </div>
 
 <style>
+    /* Success toast — ported from admin.html so finance nudges show the same green
+       "Nudge sent successfully!" confirmation instead of a browser alert(). */
+    .confirmation-toast {
+        visibility: hidden; min-width: 250px; background-color: #28a745; color: white;
+        text-align: center; border-radius: 6px; padding: 16px; position: fixed; z-index: 1001;
+        left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 14px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .confirmation-toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+    @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+    @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
 </style>
+<div id="confirmationToast" class="confirmation-toast"><span id="toastMessage"></span></div>
+<script>
+    // Shared toast helper (mirrors admin.html). Used by finance nudge/notification sends.
+    function showConfirmation(message) {
+        const toast = document.getElementById('confirmationToast');
+        document.getElementById('toastMessage').textContent = message;
+        toast.className = 'confirmation-toast show';
+        setTimeout(function() { toast.className = 'confirmation-toast'; }, 3000);
+    }
+</script>
 
 
 <!-- JAVASCRIPT -->
@@ -1407,7 +1434,7 @@ console.log('[VERIFY] window.initiateNotification =', typeof window.initiateNoti
 
                 const result = await response.json();
                 if (result.success) {
-                    alert('Email sent successfully!');
+                    showConfirmation('Nudge sent successfully!');
                     window.closeModal();
                 } else {
                     alert('Failed to send email: ' + (result.error || 'Unknown error'));
@@ -2179,7 +2206,7 @@ Finance Team`;
 
             const result = await response.json();
             if (result.success) {
-                alert('Email sent successfully!');
+                showConfirmation('Nudge sent successfully!');
                 window.closeModal();
             } else {
                 alert('Failed to send email: ' + (result.error || 'Unknown error'));

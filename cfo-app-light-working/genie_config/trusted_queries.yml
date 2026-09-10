@@ -761,3 +761,150 @@ queries:
         ROUND(p.avg_margin * 100, 2) AS previous_margin_pct,
         ROUND((c.avg_margin - p.avg_margin) * 100, 2) AS qoq_change_pp
       FROM current_margins c CROSS JOIN previous_margins p
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AI Cost & Governance patterns (gold_ai_cost_* views)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - id: q20_total_ai_spend_trend
+    spaces: [v2_analytics]
+    question_variants:
+      - "How much are we spending on AI?"
+      - "What is our total GenAI spend?"
+      - "Show AI spend trend by month"
+      - "What is AI spend as a percent of revenue?"
+    sql: |
+      -- Firmwide AI inference spend by month + as % of revenue. The headline
+      -- "small but growing" story: AI cost is a fraction of a percent of revenue
+      -- today, growing quickly. cost_usd = DBU x list price (Databricks-hosted)
+      -- + native USD (external models).
+      SELECT
+        fiscal_period,
+        ROUND(ai_cost_usd, 0)          AS ai_spend_usd,
+        ai_pct_of_revenue              AS pct_of_revenue,
+        governance_coverage_pct        AS coverage_pct
+      FROM main.cfo_proserv.gold_ai_cost_monthly
+      ORDER BY fiscal_period
+
+  - id: q21_ai_spend_by_client_engagement
+    spaces: [v2_analytics]
+    question_variants:
+      - "Which clients are driving AI spend?"
+      - "Show AI cost by engagement"
+      - "What is AI spend as a percent of the client invoice?"
+      - "Which engagements have the highest AI cost?"
+    sql: |
+      -- AI cost attributed to each engagement/client, with AI as a share of the
+      -- engagement's recognized revenue. Attribution rides request_tags['engagement']
+      -- on gateway traffic + engagement-scoped budget policies off-gateway.
+      SELECT
+        client_name,
+        project_name,
+        practice_area,
+        ROUND(ai_cost_usd, 0)          AS ai_cost_usd,
+        ai_pct_of_invoice              AS ai_pct_of_invoice,
+        contract_type
+      FROM main.cfo_proserv.gold_ai_cost_by_engagement
+      WHERE ai_cost_usd > 0
+      ORDER BY ai_cost_usd DESC
+      LIMIT 25
+
+  - id: q22_recoverable_ai_spend
+    spaces: [v2_analytics]
+    question_variants:
+      - "How much AI spend is recoverable?"
+      - "Which AI costs can we bill back to clients?"
+      - "Show recoverable AI spend by contract type"
+      - "Which engagements can we recover AI cost on?"
+    sql: |
+      -- Recoverability is driven by contract_type: Time & Materials / Outcome-Based
+      -- engagements pass AI cost through (recoverable now); Fixed Price absorbs it
+      -- (margin erosion, only lever is repricing at renewal).
+      SELECT
+        recoverability,
+        COUNT(*)                       AS engagements,
+        ROUND(SUM(ai_cost_usd), 0)     AS ai_cost_usd
+      FROM main.cfo_proserv.gold_ai_cost_by_engagement
+      WHERE ai_cost_usd > 0
+      GROUP BY recoverability
+      ORDER BY ai_cost_usd DESC
+
+  - id: q23_ai_governance_coverage
+    spaces: [v2_analytics]
+    question_variants:
+      - "What is our AI governance coverage?"
+      - "How much AI spend is untracked or shadow AI?"
+      - "How much AI spend is attributed?"
+      - "What share of AI spend is governed?"
+    sql: |
+      -- Governance coverage = share of AI $ traceable via an EXPLICIT control
+      -- (request/service tag or budget policy). The remainder is shadow AI you can
+      -- see the cost of but not yet attribute to a team or engagement.
+      SELECT
+        ROUND(SUM(CASE WHEN is_governed THEN cost_usd ELSE 0 END), 0) AS governed_usd,
+        ROUND(SUM(cost_usd), 0)                                       AS total_usd,
+        ROUND(SUM(CASE WHEN is_governed THEN cost_usd ELSE 0 END)
+              / NULLIF(SUM(cost_usd), 0) * 100, 1)                    AS coverage_pct
+      FROM main.cfo_proserv.gold_ai_cost_observability
+
+  - id: q24_ai_spend_by_cost_center_budget
+    spaces: [v2_analytics]
+    question_variants:
+      - "Which teams are over their AI budget?"
+      - "Show AI budget utilization by cost center"
+      - "Which cost centers are at risk of overrunning AI budget?"
+      - "AI chargeback by team"
+    sql: |
+      -- Internal chargeback + budget performance. Trailing-12-month AI cost vs the
+      -- annual budget policy limit per cost center; status flags at-risk (>=85%) and
+      -- over-budget (>=100%).
+      SELECT
+        cost_center,
+        cost_center_department,
+        ROUND(ttm_ai_cost_usd, 0)      AS ttm_ai_cost_usd,
+        ROUND(annual_budget_usd, 0)    AS annual_budget_usd,
+        budget_utilization_pct,
+        budget_status
+      FROM main.cfo_proserv.gold_ai_cost_by_cost_center
+      WHERE annual_budget_usd > 0
+      ORDER BY budget_utilization_pct DESC NULLS LAST
+      LIMIT 25
+
+  - id: q25_ai_provider_concentration
+    spaces: [v2_analytics]
+    question_variants:
+      - "Which engagements are concentrated on one AI provider?"
+      - "Show provider concentration risk"
+      - "Which clients rely too heavily on a single model provider?"
+    sql: |
+      -- Provider concentration: engagements with >50% of their AI calls on a single
+      -- destination model/provider — a resilience risk if that provider has an outage
+      -- or a price change.
+      SELECT
+        client_name,
+        project_name,
+        dominant_provider,
+        pct_on_one_provider,
+        ROUND(ai_cost_usd, 0)          AS ai_cost_usd
+      FROM main.cfo_proserv.gold_ai_cost_by_engagement
+      WHERE provider_concentration_flag = TRUE
+      ORDER BY ai_cost_usd DESC
+      LIMIT 25
+
+  - id: q26_ai_spend_by_surface
+    spaces: [v2_analytics]
+    question_variants:
+      - "What AI surfaces drive our spend?"
+      - "Show AI cost by product — model serving, AI functions, vector search, Genie"
+      - "How much do we spend on external models vs Databricks-hosted?"
+    sql: |
+      -- AI spend by surface (billing_origin_product) and cost leg. Shows the mix
+      -- across custom agents / AI Functions / Vector Search / Genie, and the split
+      -- between Databricks-hosted (DBU-priced) and external-model (native USD) spend.
+      SELECT
+        billing_origin_product         AS ai_surface,
+        cost_leg,
+        ROUND(SUM(cost_usd), 0)        AS ai_cost_usd
+      FROM main.cfo_proserv.gold_ai_cost_observability
+      GROUP BY billing_origin_product, cost_leg
+      ORDER BY ai_cost_usd DESC

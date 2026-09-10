@@ -1,0 +1,113 @@
+version: 1.1
+comment: |
+  Canonical AI Cost & Governance KPI definitions for the CFO Operations Platform.
+  All AI-cost measures are defined once here so Genie returns consistent values
+  regardless of phrasing. Source: gold_ai_cost_observability (the two-leg cost spine
+  — DBU × list price for Databricks-hosted, native USD for external models — with
+  multi-signal attribution onto project/engagement and cost center).
+
+  Column reference convention (Databricks metric views):
+    - Source table columns are referenced BARE (no table prefix).
+    - Joined table columns are referenced via the join's `name` alias (proj.*).
+
+source: main.cfo_proserv.gold_ai_cost_observability
+
+joins:
+  - name: proj
+    source: main.cfo_proserv.silver_dim_projects
+    using: [project_id]
+
+dimensions:
+  - name: fiscal_period
+    expr: fiscal_period
+    display_name: Fiscal Period (Month)
+    comment: Month-start of the AI usage. Use for monthly AI spend trends.
+
+  - name: billing_origin_product
+    expr: billing_origin_product
+    display_name: AI Surface
+    comment: The AI surface that produced the spend — MODEL_SERVING, AI_FUNCTIONS, VECTOR_SEARCH, GENIE.
+    synonyms: ['ai surface', 'product', 'service type']
+
+  - name: cost_leg
+    expr: cost_leg
+    display_name: Cost Leg
+    comment: HOSTED (Databricks-hosted, DBU-priced) or EXTERNAL (provider-billed native USD).
+    synonyms: ['hosted vs external', 'model tier']
+
+  - name: practice_area
+    expr: COALESCE(practice_area, 'Unattributed')
+    display_name: Practice Area
+
+  - name: client_name
+    expr: COALESCE(client_name, 'Unattributed')
+    display_name: Client
+    synonyms: ['customer', 'account']
+
+  - name: engagement_region
+    expr: COALESCE(engagement_region, 'Unknown')
+    display_name: Region
+
+  - name: contract_type
+    expr: COALESCE(contract_type, 'Unknown')
+    display_name: Contract Type
+    comment: Engagement billing type. Time & Materials / Outcome-Based = AI cost is recoverable pass-through; Fixed Price = absorbed (margin erosion).
+
+  - name: cost_center
+    expr: COALESCE(cost_center, 'Unattributed')
+    display_name: Cost Center
+
+  - name: cost_center_department
+    expr: COALESCE(cost_center_department, 'Unknown')
+    display_name: Department
+
+  - name: is_attributed
+    expr: is_attributed
+    display_name: Is Attributed
+    comment: TRUE if spend resolved to an engagement or cost center. Used for governance coverage.
+
+measures:
+  - name: total_ai_cost
+    expr: SUM(cost_usd)
+    display_name: Total AI Cost (USD)
+    comment: |
+      Total GenAI inference cost in USD. Databricks-hosted = billing DBU × list_prices
+      effective price; external models = native USD from external_model_spend. This is
+      THE canonical AI spend figure for all rollups (firmwide, practice, client, cost center).
+    synonyms: ['ai spend', 'ai cost', 'genai spend', 'inference cost']
+
+  - name: external_ai_cost
+    expr: SUM(CASE WHEN cost_leg = 'EXTERNAL' THEN cost_usd ELSE 0 END)
+    display_name: External Model Cost (USD)
+    comment: Spend on external foundation models (OpenAI/Anthropic) routed through the gateway.
+    synonyms: ['external spend', 'third-party model cost']
+
+  - name: attributed_ai_cost
+    expr: SUM(CASE WHEN is_attributed THEN cost_usd ELSE 0 END)
+    display_name: Attributed AI Cost (USD)
+    comment: AI cost that resolved to a business entity (engagement or cost center).
+
+  - name: total_dbu
+    expr: SUM(dbu)
+    display_name: Total DBU
+    comment: Databricks Units consumed by Databricks-hosted inference (0 for external models).
+
+  - name: governance_coverage_pct
+    expr: SUM(CASE WHEN is_attributed THEN cost_usd ELSE 0 END) / NULLIF(SUM(cost_usd), 0) * 100
+    display_name: Governance Coverage %
+    comment: |
+      Attributed AI $ ÷ total AI $. The share of AI spend traceable to an engagement or
+      cost center. Untraceable spend is shadow AI you can see the cost of but not yet attribute.
+    synonyms: ['coverage', 'attribution rate', 'governance coverage']
+
+  - name: active_ai_users
+    expr: COUNT(DISTINCT run_by)
+    display_name: Active AI Users
+    comment: Distinct users (run_by) generating AI spend in the period.
+    synonyms: ['ai users', 'active users']
+
+  - name: cost_per_active_user
+    expr: SUM(cost_usd) / NULLIF(COUNT(DISTINCT run_by), 0)
+    display_name: Cost per Active User (USD)
+    comment: AI cost divided by distinct active AI users.
+    synonyms: ['per-user ai cost', 'cost per user']

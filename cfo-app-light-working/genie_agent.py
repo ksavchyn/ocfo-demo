@@ -84,6 +84,14 @@ CLAUDE_MODEL_COMPOSE = (
 # Backwards-compat alias — anywhere existing code references CLAUDE_MODEL_NAME
 # without specifying which tier, default to the AGENT tier (the smarter model).
 CLAUDE_MODEL_NAME = CLAUDE_MODEL_AGENT
+
+# ── Genie engine selector ────────────────────────────────────────────────────
+# USE_AGENT_MODE=true  → query Genie via the Agent Mode Responses API
+#   (/api/2.0/genie/agents/{id}/responses): native multi-step reasoning + SQL +
+#   synthesized answer in ONE call. Replaces our decompose→fan-out→Claude-synthesis
+#   pipeline. USE_AGENT_MODE=false → the legacy chat pipeline (kept as an instant
+#   fallback). Default ON; flip to "false" via app.yml env to revert with no code change.
+USE_AGENT_MODE = os.environ.get("CFO_USE_AGENT_MODE", "true").strip().lower() in ("1", "true", "yes")
 # Genie space resolution — three-tier precedence so a fresh customer deploy
 # Just Works without manual ID lookup:
 #   1. CFO_GENIE_SPACE_ID env var (set by bundle if the customer passed --genie-space-id, OR
@@ -250,6 +258,12 @@ def _extract_table_names(sql: str) -> list[str]:
             continue
         seen.add(tbl)
         out.append(tbl)
+    # Also catch BARE gold_/silver_/bronze_ table names — agent mode emits SQL against
+    # the space's default schema, so tables often appear unqualified (no 3-part name).
+    for tbl in re.findall(r"\b((?:gold_|silver_|bronze_)[a-zA-Z0-9_]+)\b", sql):
+        if tbl not in seen and not tbl.isdigit() and len(tbl) <= 64:
+            seen.add(tbl)
+            out.append(tbl)
     return out
 
 # ---------------------------------------------------------------------------
@@ -483,6 +497,134 @@ def _query_genie_with_retry(space_id: str, question: str, max_retries: int = 3) 
     # This shouldn't be reached, but just in case
     return result
 
+
+def _stream_genie_agent_mode(space_id: str, question: str, timeout: int = 180):
+    """STREAMING generator over the Agent Mode Responses API. Yields events AS the SSE
+    arrives — reasoning texts, per-query start/result, and the final synthesized answer —
+    so the UI can show Genie thinking LIVE instead of blocking until the whole run
+    finishes. Each yielded dict is one of:
+      {"kind":"reasoning", "text": "..."}                      — a planning sentence
+      {"kind":"query",     "title": "...", "sql": "..."}        — an execute_sql the agent ran
+      {"kind":"query_result","sql":"...","raw_data":[...],"row_count":N}  — that query's rows
+      {"kind":"answer",    "text": "..."}                       — final synthesized report
+      {"kind":"error",     "text": "..."}                       — failure
+      {"kind":"done",      "result": {...}}                     — terminal; full collected dict
+                                                                   (same shape as before) for caching
+    The terminal {"kind":"done"} carries the fully-assembled result dict so callers that
+    need the whole payload (chip pre-cache) can just consume to the end.
+    """
+    token = _get_token()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{host}/api/2.0/genie/agents/{space_id}/responses"
+    body = {"input": [{"type": "message", "role": "user",
+                       "content": [{"type": "input_text", "text": question}]}],
+            "enable_viz": False}
+    result = {"text": "", "sql": None, "tables": [], "row_count": None,
+              "description": None, "raw_data": None, "suggested_questions": [],
+              "reasoning_steps": [], "sub_steps": [], "status_code": None}
+    tables_seen: list[str] = []
+    t0 = time.time()
+    try:
+        session = _get_genie_session()
+        resp = session.post(url, json=body, headers=headers, timeout=timeout, stream=True)
+        result["status_code"] = resp.status_code
+        if not resp.ok:
+            msg = f"Error querying Genie (agent mode): {resp.status_code} - {resp.text[:400]}"
+            result["text"] = msg
+            yield {"kind": "error", "text": msg}
+            yield {"kind": "done", "result": result}
+            return
+        for raw in resp.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data:"):
+                continue
+            try:
+                ev = json.loads(raw[5:].strip())
+            except Exception:
+                continue
+            etype = ev.get("type", "")
+            item = ev.get("item", {}) or {}
+            if etype != "response.output_item.done":
+                if etype == "response.completed":
+                    break
+                if etype == "response.failed":
+                    err = (ev.get("response", {}) or {}).get("error", {}) or {}
+                    msg = f"Genie agent-mode failed: {err.get('code','')}: {err.get('message','')[:200]}"
+                    result["text"] = msg
+                    yield {"kind": "error", "text": msg}
+                    break
+                continue
+            it = item.get("type", "")
+            if it == "reasoning":
+                txt = "".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "reasoning_text")
+                if txt.strip():
+                    result["reasoning_steps"].append(txt.strip())
+                    yield {"kind": "reasoning", "text": txt.strip()}
+            elif it == "function_call" and item.get("name") == "execute_sql":
+                try:
+                    args = json.loads(item.get("arguments", "{}"))
+                except Exception:
+                    args = {}
+                sql = (args.get("sql") or "").strip()
+                title = args.get("title", "")
+                result["sub_steps"].append({"question": title, "sql": sql,
+                                            "tables": [], "row_count": None, "raw_data": None})
+                if result["sql"] is None and sql:
+                    result["sql"] = sql
+                yield {"kind": "query", "title": title, "sql": sql}
+            elif it == "message" and item.get("role") == "assistant":
+                parts = []
+                for c in item.get("content", []) or []:
+                    if c.get("type") != "output_text":
+                        continue
+                    parts.append(c.get("text", ""))
+                    meta = c.get("metadata") or {}
+                    cols = meta.get("columns")
+                    if cols:
+                        colnames = [col.get("name") for col in cols]
+                        rows = meta.get("preview_rows") or []
+                        raw_rows = [dict(zip(colnames, r)) for r in rows]
+                        placed = False
+                        for s in result["sub_steps"]:
+                            if meta.get("sql") and s.get("sql") == meta["sql"].strip() and s.get("raw_data") is None:
+                                s["raw_data"] = raw_rows; s["row_count"] = meta.get("total_row_count"); placed = True
+                                yield {"kind": "query_result", "sql": s["sql"],
+                                       "raw_data": raw_rows, "row_count": meta.get("total_row_count")}
+                                break
+                        if not placed and result["raw_data"] is None:
+                            result["raw_data"] = raw_rows
+                        if result["raw_data"] is None:
+                            result["raw_data"] = raw_rows
+                        if result["row_count"] is None:
+                            result["row_count"] = meta.get("total_row_count")
+                        for tname in _extract_table_names(meta.get("sql") or ""):
+                            if tname not in tables_seen:
+                                tables_seen.append(tname)
+                result["text"] = "".join(parts).strip()
+                yield {"kind": "answer", "text": result["text"]}
+        result["tables"] = tables_seen
+        logger.info(f"⏱️ Genie agent-mode stream complete: {time.time()-t0:.1f}s, "
+                    f"{len(result['sub_steps'])} queries, {len(result['reasoning_steps'])} reasoning")
+        yield {"kind": "done", "result": result}
+    except Exception as e:
+        logger.exception("Genie agent-mode stream error")
+        result["text"] = f"Error (agent mode): {type(e).__name__}: {e}"
+        yield {"kind": "error", "text": result["text"]}
+        yield {"kind": "done", "result": result}
+
+
+def _query_genie_agent_mode(space_id: str, question: str, timeout: int = 180) -> dict:
+    """Collect-to-completion wrapper over _stream_genie_agent_mode — returns the full
+    result dict (text/sql/tables/reasoning_steps/sub_steps/...). Used by the chip
+    pre-cache path, which needs the whole payload, not a live stream."""
+    result = {"text": "", "sql": None, "tables": [], "row_count": None,
+              "description": None, "raw_data": None, "suggested_questions": [],
+              "reasoning_steps": [], "sub_steps": [], "status_code": None}
+    for ev in _stream_genie_agent_mode(space_id, question, timeout=timeout):
+        if ev.get("kind") == "done":
+            result = ev["result"]
+    return result
+
+
 def _query_genie(space_id: str, question: str) -> dict:
     """Query a Genie space and return structured result with SQL, tables, and text."""
     query_start = time.time()
@@ -668,21 +810,57 @@ def _extract_genie_structured(data: dict, token: str) -> dict:
     return result
 
 def _fetch_statement_result_with_count(statement_id: str, token: str) -> tuple:
-    """Fetch query results and return (markdown_table, row_count, raw_data)."""
+    """Fetch query results and return (markdown_table, row_count, raw_data).
+
+    Robust against two cases that previously caused empty raw_data (raw_data_length: 0
+    → 'No data available to export'):
+      1. The statement isn't SUCCEEDED yet on first GET (state PENDING/RUNNING) — poll briefly.
+      2. Results come back CHUNKED — the first response's `result.data_array` holds only the
+         first chunk; larger results paginate via `result.next_chunk_internal_link`. The old
+         code read only chunk 0, so any query whose rows spilled past the inline chunk (or
+         whose first chunk was empty) returned raw_data=[]. Now we follow the chunk links.
+    """
     try:
-        url = f"{host}/api/2.0/sql/statements/{statement_id}"
         headers = {"Authorization": f"Bearer {token}"}
         session = _get_session()
-        resp = session.get(url, headers=headers, timeout=30)
-        if not resp.ok:
-            return "", None, None
-        data = resp.json()
-        columns = data.get("manifest", {}).get("schema", {}).get("columns", [])
-        rows = data.get("result", {}).get("data_array", [])
-        if not columns or not rows:
-            return "", 0, []
+        base = f"{host}/api/2.0/sql/statements/{statement_id}"
 
+        # 1) Poll until the statement finishes (bounded — Genie usually has it ready).
+        data = None
+        for _attempt in range(15):   # ~15s max
+            resp = session.get(base, headers=headers, timeout=30)
+            if not resp.ok:
+                return "", None, None
+            data = resp.json()
+            state = (data.get("status", {}) or {}).get("state", "")
+            if state in ("SUCCEEDED", "FAILED", "CANCELED", "CLOSED", ""):
+                break
+            time.sleep(1)
+        if data is None:
+            return "", None, None
+
+        columns = data.get("manifest", {}).get("schema", {}).get("columns", [])
+        if not columns:
+            return "", 0, []
         col_names = [c["name"] for c in columns]
+
+        # 2) Collect rows across ALL chunks (first chunk inline, rest via next_chunk link).
+        rows = []
+        result = data.get("result", {}) or {}
+        rows.extend(result.get("data_array", []) or [])
+        next_link = result.get("next_chunk_internal_link")
+        _guard = 0
+        while next_link and _guard < 50:   # cap chunk-following
+            _guard += 1
+            cresp = session.get(f"{host}{next_link}", headers=headers, timeout=30)
+            if not cresp.ok:
+                break
+            cdata = cresp.json()
+            rows.extend(cdata.get("data_array", []) or [])
+            next_link = cdata.get("next_chunk_internal_link")
+
+        if not rows:
+            return "", 0, []
 
         # Build raw data as list of dicts for export
         raw_data = []
@@ -692,14 +870,14 @@ def _fetch_statement_result_with_count(statement_id: str, token: str) -> tuple:
                 row_dict[col_name] = row[i] if i < len(row) else None
             raw_data.append(row_dict)
 
-        # Build markdown table for display
+        # Build markdown table for display (first 50 rows)
         lines = []
         lines.append("| " + " | ".join(col_names) + " |")
         lines.append("| " + " | ".join(["---"] * len(col_names)) + " |")
         for row in rows[:50]:
             vals = [str(v) if v is not None else "" for v in row]
             lines.append("| " + " | ".join(vals) + " |")
-        total_rows = data.get("manifest", {}).get("total_row_count", len(rows))
+        total_rows = data.get("manifest", {}).get("total_row_count", len(rows)) or len(rows)
         if total_rows > 50:
             lines.append(f"\n*Showing 50 of {total_rows} total rows*")
         return "\n".join(lines), total_rows, raw_data
@@ -1346,6 +1524,54 @@ def _synthesize_with_validation(prompt: str) -> str:
     return full_text
 
 
+def _replay_agent_mode(user_message: str, cached_payload: dict):
+    """AGENT-MODE cache shape: SIMULATE the live agent-mode thinking stream from the
+    stored reasoning + steps (staged reveal with small delays), then stream the STORED
+    report as-is. NO live LLM/Genie calls → fast + deterministic, but the UX matches
+    the live path's 'thinking out loud' feel (reasoning sentences → queries → answer)."""
+    reasoning = cached_payload.get("reasoning_steps", []) or []
+    sub_results = cached_payload.get("sub_question_results", []) or []
+
+    yield {"type": "status", "message": "Analyzing your question…"}
+    time.sleep(0.3)
+
+    # Interleave: show reasoning sentences and queries in a plausible thinking cadence.
+    # (We don't have exact original ordering, so lead with reasoning, then the queries —
+    # same shape the live stream produces.)
+    for rtext in reasoning[:4]:
+        yield {"type": "status", "message": rtext[:180]}
+        time.sleep(0.6)
+
+    for idx, sub in enumerate(sub_results, start=1):
+        sql = sub.get("sql", "") or ""
+        sub_q = sub.get("sub_question", "") or f"Analysis {idx}"
+        tables_qualified = [f"{SCHEMA}.{t}" for t in _extract_table_names(sql)]
+        yield {"type": "tool_start", "source": "Financial Analytics", "question": sub_q}
+        time.sleep(0.4)
+        yield {
+            "type": "tool_result", "tool": "query_financial_analytics", "sql": sql,
+            "description": sub_q, "tables": tables_qualified,
+            "row_count": sub.get("row_count"), "raw_data": sub.get("raw_data"),
+        }
+        time.sleep(0.3)
+
+    # Stream the STORED synthesized report (no synthesis call).
+    full_text = cached_payload.get("agent_mode_answer", "") or ""
+    for i in range(0, len(full_text), 60):
+        yield {"type": "token", "content": full_text[i:i + 60]}
+        time.sleep(0.03)
+
+    suggested = cached_payload.get("suggested_questions", []) or []
+    if not suggested and full_text and len(full_text) > 80:
+        try:
+            suggested = _generate_claude_followups(user_question=user_message, answer_text=full_text, n=3) or []
+        except Exception as e:
+            logger.warning(f"[FOLLOWUPS] non-fatal: {type(e).__name__}: {e}")
+    if suggested:
+        yield {"type": "suggested_questions", "questions": suggested[:3]}
+    yield {"type": "clear_status"}
+
+
 def _replay_with_synthesis(user_message: str, cached_payload: dict):
     """NEW cache shape: replay sub-query SQL/results instantly, then live Claude
     synthesis composes the multi-section markdown answer (streamed as tokens)."""
@@ -1517,6 +1743,91 @@ Example shape:
         return []
 
 
+def _live_agent_mode(user_message: str):
+    """LIVE path via Agent Mode — streams the agent's thinking to the UI AS IT HAPPENS:
+    each reasoning sentence and each SQL query appears the moment agent mode emits it
+    (not after the whole run finishes). Emits the modal's event contract:
+      status (reasoning sentences, live) → tool_start/tool_result (per query, live) →
+      token (final answer) → suggested_questions → clear_status.
+    NO Opus decompose, NO Claude synthesis (agent mode's report IS the answer).
+    Write-through caches the full payload INCLUDING reasoning so a repeat ask can
+    replay the same staged thinking instantly.
+    """
+    yield {"type": "status", "message": "Analyzing your question…"}
+    final_text = ""
+    reasoning_steps = []
+    sub_results = []
+    open_query_sql = None  # track the last query announced but not yet resolved
+    result_dict = {}
+
+    for ev in _stream_genie_agent_mode(GENIE_ROOM_ANALYTICS, user_message):
+        kind = ev.get("kind")
+        if kind == "reasoning":
+            reasoning_steps.append(ev["text"])
+            # Surface the reasoning sentence live as the "thinking" status line.
+            yield {"type": "status", "message": ev["text"][:180]}
+        elif kind == "query":
+            q = ev.get("title") or "Analyzing"
+            open_query_sql = ev.get("sql") or ""
+            yield {"type": "tool_start", "source": "Financial Analytics", "question": q}
+        elif kind == "query_result":
+            sql = ev.get("sql") or open_query_sql or ""
+            tables_qualified = [f"{SCHEMA}.{t}" for t in _extract_table_names(sql)]
+            yield {
+                "type": "tool_result", "tool": "query_financial_analytics", "sql": sql,
+                "description": "", "tables": tables_qualified,
+                "row_count": ev.get("row_count"), "raw_data": ev.get("raw_data"),
+            }
+            sub_results.append({"sub_question": "", "sql": sql, "narrative": "",
+                                "raw_data": ev.get("raw_data") or [], "row_count": ev.get("row_count")})
+        elif kind == "answer":
+            final_text = ev.get("text") or ""
+        elif kind == "error":
+            yield {"type": "status", "message": "…"}
+        elif kind == "done":
+            result_dict = ev.get("result", {}) or {}
+
+    # If agent mode announced queries but the results arrived without matching (edge case),
+    # backfill sub_results from the collected sub_steps so the cache/replay stays complete.
+    if not sub_results and result_dict.get("sub_steps"):
+        for s in result_dict["sub_steps"]:
+            sub_results.append({"sub_question": s.get("question") or "", "sql": s.get("sql") or "",
+                                "narrative": "", "raw_data": s.get("raw_data") or [], "row_count": s.get("row_count")})
+    if not final_text:
+        final_text = result_dict.get("text") or ""
+
+    # Write-through cache — store reasoning too, so cached replay simulates the same
+    # staged thinking (NEW shape: agent_mode_answer + reasoning_steps + sub_question_results).
+    payload_for_cache = {
+        "agent_mode_answer": final_text,
+        "reasoning_steps": reasoning_steps or result_dict.get("reasoning_steps") or [],
+        "sub_question_results": sub_results,
+        "suggested_questions": [],
+    }
+    try:
+        from persona_insights_reader import write_cached_payload_for_question
+        write_cached_payload_for_question(user_message, payload_for_cache)
+    except Exception as _e:
+        logger.warning(f"[CACHE-WRITE] non-fatal: {type(_e).__name__}: {_e}")
+
+    # Stream the final synthesized report as tokens.
+    for i in range(0, len(final_text), 60):
+        yield {"type": "token", "content": final_text[i:i + 60]}
+        time.sleep(0.03)
+
+    if final_text and len(final_text) > 80:
+        try:
+            suggested = _generate_claude_followups(user_question=user_message, answer_text=final_text, n=3) or []
+            if suggested:
+                yield {"type": "suggested_questions", "questions": suggested[:3]}
+        except Exception as e:
+            logger.warning(f"[FOLLOWUPS] claude generator failed: {type(e).__name__}: {e}")
+
+    yield {"type": "clear_status"}
+
+    yield {"type": "clear_status"}
+
+
 def _live_multi_query_with_synthesis(user_message: str):
     """LIVE path for typed / uncached questions — Opus decompose → parallel
     Genie fan-out → strict-sequential UI replay → Claude synthesis.
@@ -1656,25 +1967,28 @@ def stream_agent(user_message: str, history: list = None):
 
     if cached_payload:
         logger.info(f"[ORCHESTRATOR-CACHE] Replaying cached payload for: {user_message[:80]}")
-        # Two cache shapes supported:
-        #   NEW: {sub_question_results: [{sub_question, sql, raw_data, narrative, tables, row_count}, ...]}
-        #        → instant tool_start/tool_result replay for each sub-question, then
-        #          a LIVE Claude synthesis call composes the multi-section root cause
-        #          analysis (~10-15s feels like real-time AI reasoning).
-        #   OLD: {sql_steps: [...], final_narrative: "..."}
-        #        → instant cached replay (mechanical Genie narrative — kept as fallback
-        #          while old rows still exist in the table).
-        sub_results = cached_payload.get("sub_question_results")
-        if sub_results:
+        # Three cache shapes supported:
+        #   AGENT-MODE: {agent_mode_answer: "...", sub_question_results: [...]}
+        #        → replay the sub-query steps, then stream the STORED synthesized report
+        #          as-is (NO re-synthesis — agent mode already wrote it). Fully instant.
+        #   NEW: {sub_question_results: [...]}  (no agent_mode_answer)
+        #        → replay steps + a LIVE Claude synthesis call (legacy chip cache).
+        #   OLD: {sql_steps: [...], final_narrative: "..."}  → mechanical replay.
+        if cached_payload.get("agent_mode_answer"):
+            yield from _replay_agent_mode(user_message, cached_payload)
+        elif cached_payload.get("sub_question_results"):
             yield from _replay_with_synthesis(user_message, cached_payload)
         else:
             yield from _replay_legacy_format(user_message, cached_payload)
         return
 
-    # No orchestrator cache hit. Live path: Opus decompose → 2-3 parallel Genie
-    # sub-queries → Claude synthesis. Same architecture as the cached chip path,
-    # firing Genie now instead of replaying.
-    yield from _live_multi_query_with_synthesis(user_message)
+    # No orchestrator cache hit. Live path.
+    #   USE_AGENT_MODE → single Agent Mode call (native reasoning + SQL + synthesis).
+    #   else → legacy Opus-decompose → parallel Genie fan-out → Claude synthesis.
+    if USE_AGENT_MODE:
+        yield from _live_agent_mode(user_message)
+    else:
+        yield from _live_multi_query_with_synthesis(user_message)
 
 
 if __name__ != "__main__":

@@ -611,8 +611,33 @@
         "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, industry))\n",
         "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
         "    GROUP BY location\n",
+        "),\n",
+        "ai_data AS (\n",
+        "    SELECT\n",
+        "      engagement_location as office,\n",
+        "      SUM(cost_usd) as ai_spend\n",
+        "    FROM main.cfo_proserv_dev.gold_ai_cost_observability\n",
+        "    WHERE\n",
+        "      fiscal_period >= DATE_SUB(CURRENT_DATE(), 180)\n",
+        "      AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, engagement_region))\n",
+        "      AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, engagement_location))\n",
+        "      AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "      AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, engagement_industry))\n",
+        "      AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, client_name))\n",
+        "    GROUP BY engagement_location\n",
         ")\n",
-        "SELECT * FROM filtered_data ORDER BY office\n"
+        "SELECT\n",
+        "  f.office,\n",
+        "  f.billable_expenses,\n",
+        "  f.corporate_expenses,\n",
+        "  f.marketing_expenses,\n",
+        "  f.tech_expenses,\n",
+        "  f.other_expenses,\n",
+        "  COALESCE(a.ai_spend, 0) as ai_spend,\n",
+        "  f.budgeted_expenses\n",
+        "FROM filtered_data f\n",
+        "LEFT JOIN ai_data a ON f.office = a.office\n",
+        "ORDER BY f.office\n"
       ],
       "parameters": [
         {
@@ -1456,6 +1481,10 @@
                       "expression": "`other_expenses`"
                     },
                     {
+                      "name": "ai_spend",
+                      "expression": "`ai_spend`"
+                    },
+                    {
                       "name": "budgeted_expenses",
                       "expression": "`budgeted_expenses`"
                     }
@@ -1477,6 +1506,7 @@
                   "#E53935",
                   "#EF5350",
                   "#EF9A9A",
+                  "#FFD200",
                   "#56170D",
                   {
                     "themeColorType": "visualizationColors",
@@ -1555,6 +1585,10 @@
                       {
                         "fieldName": "other_expenses",
                         "displayName": "Other"
+                      },
+                      {
+                        "fieldName": "ai_spend",
+                        "displayName": "AI Spend"
                       }
                     ]
                   },

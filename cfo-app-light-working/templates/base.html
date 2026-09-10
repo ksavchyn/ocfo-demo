@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Finance & Admin Control Center - Databricks{% endblock %}</title>
 
+    <!-- Favicon (browser tab icon) -->
+    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='databricks-orange.jpeg') }}">
+    <link rel="shortcut icon" type="image/jpeg" href="{{ url_for('static', filename='databricks-orange.jpeg') }}">
+
     <!-- CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v={{ range(1000, 9999) | random }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v={{ range(1000, 9999) | random }}">
@@ -128,6 +132,10 @@
                 <a href="{{ url_for('admin_deepdive') }}" class="sidebar-link {% if request.endpoint == 'admin_deepdive' %}active{% endif %}">
                     <i class="fas fa-cogs"></i>
                     <span>Admin Overview</span>
+                </a>
+                <a href="{{ url_for('ai_cost_governance') }}" class="sidebar-link {% if request.endpoint == 'ai_cost_governance' %}active{% endif %}">
+                    <i class="fas fa-scale-balanced"></i>
+                    <span>AI Cost &amp; Governance</span>
                 </a>
             </div>
 

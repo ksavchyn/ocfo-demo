@@ -18,6 +18,16 @@ import threading
 
 # Schema configuration — env-var driven for asset-bundle portability
 SCHEMA = os.environ.get("CFO_SCHEMA", "main.cfo_proserv")
+
+# AI Cost & Governance tab — the 3 top-level Genie questions, shown in BOTH the bottom
+# Genie bar (rendered in ai_cost.html) and the AI Assistant modal (/api/get-page-chips
+# page=ai). Single source of truth so they never drift. Per-section inline suggestions
+# are separate (defined in the template next to each section).
+AI_TAB_GENIE_CHIPS = [
+    "How much are we spending on AI, and is it growing?",
+    "Which clients should we reprice on absorbed AI cost?",
+    "How much AI spend is recoverable vs absorbed?",
+]
 genie_agent = None
 genie_import_complete = threading.Event()
 
@@ -583,12 +593,27 @@ def chat_stream_endpoint():
                 event_count += 1
                 if event_count <= 3:  # Log first 3 events
                     app_logger.info(f"[CHAT-STREAM DEBUG] Event {event_count}: {event}")
-                yield f"data: {json.dumps(event)}\n\n"
+                # default=str so a non-JSON-native value in an event (Decimal / datetime /
+                # numpy type from a raw_data cell) can NEVER crash the stream — it serializes
+                # to a string instead of raising. Per-event try so one bad event is logged +
+                # skipped, not fatal to the whole answer.
+                try:
+                    payload = json.dumps(event, default=str)
+                except Exception as ser_e:
+                    app_logger.error(
+                        f"[CHAT-STREAM] event #{event_count} serialization failed for "
+                        f"question={user_message!r}: {type(ser_e).__name__}: {ser_e} | "
+                        f"event_type={event.get('type') if isinstance(event, dict) else type(event)}"
+                    )
+                    continue
+                yield f"data: {payload}\n\n"
 
             app_logger.info(f"[CHAT-STREAM DEBUG] Stream completed, sent {event_count} events")
         except Exception as e:
-            app_logger.error(f"[CHAT-STREAM DEBUG] Streaming error: {e}")
-            app_logger.error(f"[CHAT-STREAM DEBUG] Error traceback: {traceback.format_exc()}")
+            # Log the QUESTION + full traceback so a user-facing "Sorry, I encountered an
+            # error" is always debuggable from the app logs (grep the question text).
+            app_logger.error(f"[CHAT-STREAM] ERROR answering question={user_message!r}: {type(e).__name__}: {e}")
+            app_logger.error(f"[CHAT-STREAM] traceback: {traceback.format_exc()}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return Response(generate(), mimetype='text/event-stream')
@@ -1378,6 +1403,38 @@ def generate_email():
 
     tone_instruction = tone_instructions.get(tone, tone_instructions['professional'])
 
+    if email_type == 'ai_nudge':
+        # AI Cost & Governance nudge — recover / reprice / flag an engagement's AI spend.
+        # `context` here is a free-text string (unlike the numeric revenue-nudge context).
+        ai_ctx = context if isinstance(context, str) else json.dumps(context)
+        action = data.get('action', 'Review')
+        prompt = f"""Generate a concise internal email to the engagement lead about AI cost on their engagement.
+
+TONE: {tone.upper()} - {tone_instruction}
+
+Action: {action}
+Context: {ai_ctx}
+
+Write a short email that:
+1. States the attributed AI spend on the engagement and how it compares to the contract/invoice
+2. Explains the recommended action ({action}) and why (pass-through recovery for T&M, margin review / reprice-at-renewal for fixed-fee)
+3. Requests confirmation or a next step
+This is a flag-for-human-review recommendation, never an automatic pricing change.
+
+Return ONLY the email content in this exact format with no introductory text:
+Subject: [subject line]
+Body: [email body with greeting and sign-off]
+
+Do NOT include meta-commentary like "Here is a draft"."""
+        claude_response = call_claude_endpoint(prompt)
+        if claude_response:
+            lines = claude_response.split('\n')
+            subject = next((line.replace('Subject:', '').strip() for line in lines if line.startswith('Subject:')),
+                           f"AI Cost — {action}")
+            body = '\n'.join(line for line in lines if not line.startswith('Subject:') and not line.startswith('Body:'))
+            return jsonify({'subject': subject, 'body': body.strip()})
+        return jsonify({'subject': f"AI Cost — {action}", 'body': ai_ctx})
+
     if email_type == 'nudge':
         # Revenue nudge email for Admin tab
         prompt = f"""Generate an email to nudge a partner about revenue targets.
@@ -1573,6 +1630,17 @@ Best regards,
 CFO Team"""
         })
 
+@app.route('/api/send-workflow-email', methods=['POST'])
+def send_workflow_email():
+    """Demo email 'send' — logs the workflow email and returns success so the UI shows its
+    confirmation toast. No real mail is sent (demo). This endpoint was previously missing,
+    which made the Finance tab's send path 404 → its catch block showed an error instead of
+    the green 'Nudge sent' toast (Admin's catch showed the toast anyway, masking the gap)."""
+    data = request.json or {}
+    app_logger.info(f"[WORKFLOW EMAIL] type={data.get('type')} to={data.get('to')} subject={data.get('subject')}")
+    return jsonify({'success': True, 'timestamp': datetime.now().isoformat()})
+
+
 @app.route('/api/get-page-chips')
 def get_page_chips():
     """Return page-scoped bottom chips from gold_persona_insights.
@@ -1588,7 +1656,13 @@ def get_page_chips():
         page = (request.args.get('page') or '').lower()
         persona = request.args.get('persona', 'priya')
 
-        if page in ('finance', 'admin'):
+        if page == 'ai':
+            # AI Cost & Governance tab — fixed, curated question set (NOT persona/LLM-generated).
+            # Single source of truth for both the bottom Genie bar AND this modal (see
+            # AI_TAB_GENIE_CHIPS). The gold_persona_insights table has no 'ai' rows.
+            chips = [{'slot_id': i, 'question_text': q, 'narrative': ''}
+                     for i, q in enumerate(AI_TAB_GENIE_CHIPS)]
+        elif page in ('finance', 'admin'):
             chips = get_bottom_chips_for_page(persona=None, page=page)
         else:
             # Executive / landing page — persona-scoped
@@ -1676,7 +1750,297 @@ def admin_deepdive():
         data={'active_persona': _resolve_persona_from_cookie()},
     )
 
-# HR routes removed - not needed for this demo
+# ═══════════════════════════════════════════════════════════════════════════
+# AI Cost & Governance tab — custom UI over the gold_ai_cost_* views
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _q1(query, default=None):
+    """Run a query expected to return a single row; return the row (list) or default."""
+    rows = execute_sql_query(query)
+    return rows[0] if rows else default
+
+
+@app.route('/ai-cost-governance')
+def ai_cost_governance():
+    """AI Cost & Governance page — custom UI (KPIs, cockpit, controls, billing, value lens,
+    provider concentration, forecast) rendered over the gold_ai_cost_* views."""
+    current_time = datetime.now()
+    return render_template(
+        'ai_cost.html',
+        current_time=current_time,
+        genie_chips=AI_TAB_GENIE_CHIPS,
+        data={'active_persona': _resolve_persona_from_cookie()},
+    )
+
+
+@app.route('/api/ai-cost/kpis')
+def ai_cost_kpis():
+    """Cockpit KPI tiles: AI spend vs budget, % revenue, cost/active-user, frontier/OSS,
+    governance coverage, budgets-at-risk. All from gold_ai_cost_monthly + _by_cost_center."""
+    s = SCHEMA
+    try:
+        # Latest complete month + trailing-12 rollups from the monthly series.
+        row = _q1(f"""
+            WITH anchor AS (SELECT MAX(fiscal_period) AS mx FROM {s}.gold_ai_cost_monthly),
+            ttm AS (
+                SELECT SUM(ai_cost_usd) ttm_ai, SUM(monthly_revenue) ttm_rev,
+                       SUM(external_cost_usd) ttm_ext
+                FROM {s}.gold_ai_cost_monthly
+                WHERE fiscal_period > ADD_MONTHS((SELECT mx FROM anchor), -12)
+            ),
+            latest AS (
+                SELECT ai_cost_usd, ai_pct_of_revenue, governance_coverage_pct,
+                       active_users, cost_per_active_user
+                FROM {s}.gold_ai_cost_monthly WHERE fiscal_period = (SELECT mx FROM anchor)
+            ),
+            prior AS (
+                SELECT ai_cost_usd AS prior_ai, cost_per_active_user AS prior_cpau
+                FROM {s}.gold_ai_cost_monthly
+                WHERE fiscal_period = ADD_MONTHS((SELECT mx FROM anchor), -1)
+            )
+            SELECT ttm.ttm_ai, ttm.ttm_rev, ttm.ttm_ext,
+                   latest.ai_cost_usd, latest.ai_pct_of_revenue, latest.governance_coverage_pct,
+                   latest.active_users, latest.cost_per_active_user,
+                   prior.prior_ai, prior.prior_cpau
+            FROM ttm, latest, prior
+        """)
+        # Frontier vs OSS split (TTM) from the practice breakdown.
+        split = _q1(f"""
+            SELECT
+              ROUND(SUM(CASE WHEN model_tier='Frontier' THEN ai_cost_usd ELSE 0 END)
+                    / NULLIF(SUM(ai_cost_usd),0) * 100, 0) AS frontier_pct
+            FROM {s}.gold_ai_cost_by_practice
+            WHERE fiscal_period > ADD_MONTHS((SELECT MAX(fiscal_period) FROM {s}.gold_ai_cost_by_practice), -12)
+        """)
+        # Budgets at risk (AT_RISK or OVER_BUDGET).
+        atrisk = _q1(f"""
+            SELECT COUNT(*) FROM {s}.gold_ai_cost_by_cost_center
+            WHERE budget_status IN ('AT_RISK','OVER_BUDGET')
+        """)
+        def f(x, d=0.0):
+            try: return float(x)
+            except (TypeError, ValueError): return d
+        ttm_ai, ttm_rev, ttm_ext, lat_ai, lat_pct, lat_cov, lat_users, lat_cpau, prior_ai, prior_cpau = (
+            (row or [None]*10) + [None]*10)[:10]
+        frontier = f(split[0]) if split else 68.0
+        atrisk_n = int(f(atrisk[0])) if atrisk else 0
+
+        # Per-dimension TTM breakouts so the client can RECOMPUTE every KPI under any
+        # filter (region/location/practice/industry) instantly — no re-fetch. Each row
+        # carries the additive components; ratios (%rev, cost/identity) are recomputed
+        # client-side as SUM(numerator)/SUM(denominator) over the filtered subset:
+        #   ttm_spend, ttm_revenue, ttm_external, governed_spend (coverage numerator),
+        #   frontier_spend, distinct active IDENTITIES (run_as — per Option A: "active
+        #   identities", covers RBAC engagement-roles + individual users uniformly).
+        by_dim = execute_sql_query(f"""
+            WITH anchor AS (SELECT MAX(fiscal_period) AS mx FROM {s}.gold_ai_cost_observability)
+            SELECT engagement_region, engagement_location, practice_area, engagement_industry,
+                   ROUND(SUM(cost_usd),0)                                              AS spend,
+                   ROUND(SUM(CASE WHEN cost_leg='EXTERNAL' THEN cost_usd ELSE 0 END),0) AS external,
+                   ROUND(SUM(CASE WHEN cost_leg='EXTERNAL' THEN cost_usd ELSE 0 END),0) AS frontier,
+                   ROUND(SUM(CASE WHEN is_governed THEN cost_usd ELSE 0 END),0)        AS governed,
+                   COUNT(DISTINCT run_by)                                              AS identities
+            FROM {s}.gold_ai_cost_observability
+            WHERE fiscal_period > ADD_MONTHS((SELECT mx FROM anchor), -12)
+            GROUP BY engagement_region, engagement_location, practice_area, engagement_industry
+        """) or []
+        # Per-dimension TTM revenue (denominator for %-of-revenue), from the base P&L at
+        # the same grain — this is the customer's OWN financial data (real, derivable).
+        rev_dim = execute_sql_query(f"""
+            WITH anchor AS (SELECT MAX(fiscal_period) AS mx FROM {s}.gold_ai_cost_observability)
+            SELECT region, location, practice_area, industry,
+                   ROUND(SUM(total_revenue),0),
+                   -- Operating expenses = revenue - operating income (cost of delivery + SG&A).
+                   -- This is the SAME opex base the Finance/Admin margin math uses (NOT the
+                   -- EXPENSE_SCALE-inflated total_expenses column), so "AI as % of opex" stays
+                   -- consistent with the rest of the app and traces to the customer's own P&L.
+                   ROUND(SUM(total_revenue - operating_income),0) AS opex
+            FROM {s}.gold_regional_pnl
+            WHERE fiscal_period > ADD_MONTHS((SELECT mx FROM anchor), -12)
+            GROUP BY region, location, practice_area, industry
+        """) or []
+        # Firmwide TTM opex (cost of delivery + SG&A operating expenses) — the denominator
+        # for "AI as % of all expenses". Derived from the customer's own P&L, same grain as
+        # revenue, so it filters identically. Summed here from the per-dim rows below.
+        ttm_opex = sum(f(r[5]) for r in rev_dim)
+        return jsonify({
+            "ttm_ai_spend": f(ttm_ai),
+            "ttm_pct_revenue": round(f(ttm_ai) / f(ttm_rev, 1) * 100, 3) if f(ttm_rev) else None,
+            "ttm_pct_opex": round(f(ttm_ai) / ttm_opex * 100, 3) if ttm_opex else None,
+            "latest_month_spend": f(lat_ai),
+            "latest_pct_revenue": f(lat_pct),
+            "governance_coverage_pct": f(lat_cov),
+            "frontier_pct": frontier,
+            "oss_pct": round(100 - frontier, 0),
+            "budgets_at_risk": atrisk_n,
+            # firmwide TTM revenue + opex — client uses them as the %rev / %opex denominators
+            # when no filter is active
+            "ttm_revenue": f(ttm_rev),
+            "ttm_opex": ttm_opex,
+            # per-dimension breakouts for client-side filter recompute (see comment above)
+            "by_dim": [
+                {"region": r[0], "location": r[1], "practice": r[2], "industry": r[3],
+                 "spend": f(r[4]), "external": f(r[5]), "frontier": f(r[6]),
+                 "governed": f(r[7]), "identities": int(f(r[8]))}
+                for r in by_dim
+            ],
+            "revenue_by_dim": [
+                {"region": r[0], "location": r[1], "practice": r[2], "industry": r[3],
+                 "revenue": f(r[4]), "opex": f(r[5])}
+                for r in rev_dim
+            ],
+        })
+    except Exception as e:
+        app_logger.error(f"[ai-cost/kpis] {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ai-cost/trend')
+def ai_cost_trend():
+    """Monthly AI spend time series, broken out by month × region × location × practice ×
+    industry so the client can filter the trend chart instantly (re-sum per month for the
+    active filter). ai_cost + external are additive across dims (safe to re-sum client-side).
+    pct_revenue is NOT re-summable (ratio), so it's computed per-month firmwide separately
+    below and merged by the client only when no filter narrows revenue — see ai_cost.js."""
+    s = SCHEMA
+    rows = execute_sql_query(f"""
+        SELECT CAST(fiscal_period AS DATE), engagement_region, engagement_location,
+               practice_area, engagement_industry,
+               ROUND(SUM(cost_usd),0),
+               ROUND(SUM(CASE WHEN cost_leg='EXTERNAL' THEN cost_usd ELSE 0 END),0)
+        FROM {s}.gold_ai_cost_observability
+        GROUP BY fiscal_period, engagement_region, engagement_location, practice_area, engagement_industry
+        ORDER BY fiscal_period
+    """) or []
+    # Firmwide monthly %-of-revenue (ratio — kept as its own series for the % line).
+    pct_rows = execute_sql_query(f"""
+        SELECT CAST(fiscal_period AS DATE), ai_pct_of_revenue
+        FROM {s}.gold_ai_cost_monthly ORDER BY fiscal_period
+    """) or []
+    pct_by_month = {str(r[0]): float(r[1] or 0) for r in pct_rows}
+    # Revenue by month × the SAME dims, so the client can recompute % of revenue UNDER a
+    # filter = (filtered AI cost) / (filtered revenue). Without this the % line had to drop
+    # out when any filter was applied (ratio isn't re-summable from the firmwide number).
+    rev_rows = execute_sql_query(f"""
+        SELECT CAST(fiscal_period AS DATE), region, location, practice_area, industry,
+               ROUND(SUM(revenue),0)
+        FROM {s}.gold_enterprise_metrics
+        GROUP BY fiscal_period, region, location, practice_area, industry
+        ORDER BY fiscal_period
+    """) or []
+    return jsonify({
+        "rows": [
+            {"month": r[0], "region": r[1], "location": r[2], "practice": r[3],
+             "industry": r[4], "ai_cost": float(r[5] or 0), "external": float(r[6] or 0)}
+            for r in rows
+        ],
+        "pct_by_month": pct_by_month,
+        "rev_rows": [
+            {"month": r[0], "region": r[1], "location": r[2], "practice": r[3],
+             "industry": r[4], "revenue": float(r[5] or 0)}
+            for r in rev_rows
+        ],
+    })
+
+
+@app.route('/api/ai-cost/by-practice')
+def ai_cost_by_practice():
+    """Practice breakdown for the cockpit chart (both slicings: model_tier / service_type),
+    broken out by region/location/industry too so the client can filter it instantly. Built
+    from the spine (not gold_ai_cost_by_practice, which lacks region/loc/industry) — model_tier
+    derived the same way (EXTERNAL=Frontier else OSS)."""
+    s = SCHEMA
+    rows = execute_sql_query(f"""
+        SELECT practice_area, engagement_region, engagement_location, engagement_industry,
+               CASE WHEN cost_leg='EXTERNAL' THEN 'Frontier' ELSE 'OSS' END AS model_tier,
+               billing_origin_product AS service_type,
+               ROUND(SUM(cost_usd),0)
+        FROM {s}.gold_ai_cost_observability
+        WHERE fiscal_period > ADD_MONTHS((SELECT MAX(fiscal_period) FROM {s}.gold_ai_cost_observability), -12)
+          AND practice_area IS NOT NULL
+        GROUP BY practice_area, engagement_region, engagement_location, engagement_industry,
+                 CASE WHEN cost_leg='EXTERNAL' THEN 'Frontier' ELSE 'OSS' END, billing_origin_product
+    """) or []
+    return jsonify([
+        {"practice": r[0], "region": r[1], "location": r[2], "industry": r[3],
+         "model_tier": r[4], "service_type": r[5], "cost": float(r[6] or 0)}
+        for r in rows
+    ])
+
+
+@app.route('/api/ai-cost/by-office')
+def ai_cost_by_office():
+    """Powers the AI-spend-by-office uni-bar chart with three groupings (office / model type /
+    service type). Returns TTM spine rows at region × location × provider × service_type grain
+    so the client groups by whichever toggle is active and re-sums instantly under the 4 global
+    filters — no re-fetch. Provider = the model-type split (Anthropic/OpenAI/Gemini/Meta-OSS)."""
+    s = SCHEMA
+    rows = execute_sql_query(f"""
+        WITH anchor AS (SELECT MAX(fiscal_period) AS mx FROM {s}.gold_ai_cost_observability)
+        SELECT engagement_region, engagement_location, engagement_industry, practice_area,
+               provider, billing_origin_product AS service_type, cost_leg,
+               ROUND(SUM(cost_usd),0) AS cost
+        FROM {s}.gold_ai_cost_observability
+        WHERE fiscal_period > ADD_MONTHS((SELECT mx FROM anchor), -12)
+        GROUP BY engagement_region, engagement_location, engagement_industry, practice_area,
+                 provider, billing_origin_product, cost_leg
+    """) or []
+    return jsonify([
+        {"region": r[0], "location": r[1], "industry": r[2], "practice": r[3],
+         "provider": r[4], "service_type": r[5], "cost_leg": r[6], "cost": float(r[7] or 0)}
+        for r in rows
+    ])
+
+
+@app.route('/api/ai-cost/cost-centers')
+def ai_cost_cost_centers():
+    """Budget performance by cost center — the 'Enforce Internal Spend Controls' table."""
+    s = SCHEMA
+    rows = execute_sql_query(f"""
+        SELECT cost_center, cost_center_department, policy_name,
+               ROUND(ttm_ai_cost_usd,0), ROUND(annual_budget_usd,0),
+               budget_utilization_pct, budget_status
+        FROM {s}.gold_ai_cost_by_cost_center
+        WHERE annual_budget_usd > 0
+        ORDER BY budget_utilization_pct DESC NULLS LAST
+        LIMIT 25
+    """) or []
+    return jsonify([
+        {"cost_center": r[0], "department": r[1], "policy": r[2],
+         "ttm_cost": float(r[3] or 0), "budget": float(r[4] or 0),
+         "utilization_pct": float(r[5] or 0), "status": r[6]}
+        for r in rows
+    ])
+
+
+@app.route('/api/ai-cost/engagements')
+def ai_cost_engagements():
+    """Engagement-grain rows powering Client-vs-Invoice, Top Recoverable, Value Lens scatter."""
+    s = SCHEMA
+    rows = execute_sql_query(f"""
+        SELECT project_name, client_name, practice_area, contract_type,
+               ROUND(ai_cost_usd,0), ai_pct_of_invoice, ROUND(engagement_revenue,0),
+               recoverability, recommended_action,
+               ROUND(ai_cost_per_delivery_hour,2), engagement_margin_pct, ROUND(total_contract_value,0),
+               dominant_provider, pct_on_one_provider, provider_concentration_flag, endpoints,
+               engagement_region, engagement_location, engagement_industry
+        FROM {s}.gold_ai_cost_by_engagement
+        WHERE ai_cost_usd > 0
+        ORDER BY ai_cost_usd DESC
+        LIMIT 200
+    """) or []
+    return jsonify([
+        {"project": r[0], "client": r[1], "practice": r[2], "contract_type": r[3],
+         "ai_cost": float(r[4] or 0), "ai_pct_invoice": float(r[5] or 0) if r[5] is not None else None,
+         "revenue": float(r[6] or 0), "recoverability": r[7], "action": r[8],
+         "ai_per_hour": float(r[9] or 0) if r[9] is not None else None,
+         "margin_pct": float(r[10] or 0), "tcv": float(r[11] or 0),
+         "dominant_provider": r[12], "pct_one_provider": float(r[13] or 0) if r[13] is not None else None,
+         "concentration_flag": bool(r[14]), "endpoints": r[15],
+         "region": r[16], "location": r[17], "industry": r[18]}
+        for r in rows
+    ])
+
 
 @app.route('/api/test-priorities', methods=['GET'])
 def test_priorities():

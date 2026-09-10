@@ -19,6 +19,7 @@
 
 # DBTITLE 1,Setup & Configuration
 import random
+import math
 import uuid
 from datetime import datetime, timedelta, date
 from decimal import Decimal
@@ -26,7 +27,7 @@ from decimal import Decimal
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     StructType, StructField, StringType, DoubleType, IntegerType,
-    DateType, TimestampType, BooleanType, LongType, DecimalType
+    DateType, TimestampType, BooleanType, LongType, DecimalType, MapType
 )
 
 import os
@@ -245,6 +246,24 @@ def _month_offset(n: int) -> tuple:
     """
     total = ANCHOR_DATE.year * 12 + (ANCHOR_DATE.month - 1) - n
     return (total // 12, total % 12 + 1)
+
+
+def _month_start(n: int) -> date:
+    """First day of the month n months before the anchor month (mirrors 02_build_silver_gold)."""
+    y, m = _month_offset(n)
+    return date(y, m, 1)
+
+
+def _stable_hash(*parts) -> int:
+    """Deterministic non-negative hash (process-salt-independent, unlike built-in hash()).
+
+    The base model guarantees byte-identical output for a given anchor + seed; Python's
+    built-in hash() is salted per-process (PYTHONHASHSEED) and would break that. Use this
+    for any content-derived key/id in the AI-cost generator.
+    """
+    import hashlib
+    key = "|".join("" if p is None else str(p) for p in parts)
+    return int(hashlib.md5(key.encode()).hexdigest(), 16)
 
 
 DATE_END = ANCHOR_DATE
@@ -3348,6 +3367,617 @@ write_table(spark.createDataFrame(ccm_rows, schema=ccm_schema), "bronze_cost_cen
 
 # COMMAND ----------
 
+# DBTITLE 1,AI Cost Observability — synthetic system-table look-alikes
+# MAGIC %md
+# MAGIC ## AI Cost & Governance layer — FAITHFUL `system.*` look-alikes
+# MAGIC
+# MAGIC **Design contract (load-bearing — the whole handover depends on it):** each of the
+# MAGIC four telemetry tables below is a FAITHFUL SUBSET of the real Unity Catalog system
+# MAGIC table it mirrors — every column exists in `system.*` with the IDENTICAL name, type,
+# MAGIC and struct nesting (verified against live `DESCRIBE`, 2026-07-23). The gold views
+# MAGIC reference ONLY real field paths. So a customer deploys the AI Cost & Governance tab
+# MAGIC on THEIR OWN data by repointing the gold views from these `bronze_ai_*` tables to
+# MAGIC `system.*` — no reshaping, no new columns, no additional lift beyond having their
+# MAGIC traffic tagged / scoped. Real tables are supersets; we populate only the columns the
+# MAGIC gold layer consumes (unpopulated real columns are simply absent, which is fine — a
+# MAGIC subset never breaks a SELECT of columns present in both).
+# MAGIC
+# MAGIC | Look-alike | Mirrors (verified live) | Grain | Carries $? |
+# MAGIC |---|---|---|---|
+# MAGIC | `bronze_ai_gateway_usage` | `system.ai_gateway.usage` | per-request | NO (tokens only) |
+# MAGIC | `bronze_billing_usage` | `system.billing.usage` | per usage-record (aggregate) | via DBU × list price |
+# MAGIC | `bronze_ai_gateway_external_model_spend` | `system.ai_gateway.external_model_spend` | per external-model usage window | YES (native USD) |
+# MAGIC | `bronze_ai_list_prices` | `system.billing.list_prices` | per SKU | $/unit (nested) |
+# MAGIC
+# MAGIC Plus ONE non-system dim — `bronze_ai_budget_policy` — which is NOT a mock of a system
+# MAGIC table. It represents the customer's OWN serverless budget/usage-policy configuration
+# MAGIC (policy names, $ limits, scope) that they define in the gateway/account console. The
+# MAGIC "Budget Performance / Enforce Spend Controls" panel needs it. On a customer deploy
+# MAGIC this is their governance config, and `budget_policy_id` is the join key that already
+# MAGIC lands in `system.billing.usage.usage_metadata.budget_policy_id`.
+# MAGIC
+# MAGIC **Attribution truths honored (fact-checked 2026-07-22 + live schema 2026-07-23):**
+# MAGIC - Gateway traffic (custom agents, external models) → clean per-request attribution via
+# MAGIC   `request_tags['engagement']` + `endpoint_tags['cost_center']` (both real MAP cols).
+# MAGIC   Same tags flow to `billing.usage.custom_tags` for the cost row.
+# MAGIC - Off-gateway serverless (AI Functions, Vector Search, Genie) CANNOT carry request tags
+# MAGIC   → attributed via the serverless budget policy (`usage_metadata.budget_policy_id`),
+# MAGIC   whose tags land in `custom_tags`, plus `workspace_id` / `identity_metadata.run_by`.
+# MAGIC - UC object tags NEVER reach `billing.usage` — we do not rely on them.
+# MAGIC - A realistic minority of traffic is UNTAGGED (no cost_center / engagement) → drives the
+# MAGIC   "Governance Coverage" KPI (coverage = attributed $ ÷ total $), i.e. shadow AI you can
+# MAGIC   see the cost of but not yet attribute. There is no fabricated "ungoverned surface".
+# MAGIC
+# MAGIC **Sizing:** firmwide GenAI *inference* bill ≈ $44M/yr ≈ 0.27% of $16.2B revenue
+# MAGIC (≈ $1,750/employee/yr), growing ~40% YoY. Modeled, per-employee-anchored — inference-only,
+# MAGIC well under the BCG-AI-Radar ~1.7%-of-revenue all-in AI ceiling. See PROJECT_LOG 2026-07-23.
+
+# COMMAND ----------
+
+# DBTITLE 1,AI Cost — config, taxonomy & sizing anchors
+
+# Decimal helper — system tables type usage_quantity / prices as decimal(38,18);
+# createDataFrame requires Decimal (not float) for DecimalType fields.
+def _dec(x):
+    return Decimal(str(round(float(x), 8)))
+
+# --- Firmwide AI inference bill target (see PROJECT_LOG 2026-07-23 sizing) -----
+# Anchor month sits at the current-FY monthly run-rate; walk BACKWARD ~40% YoY so
+# the trend grows into the anchor month. Keyed off ANCHOR_DATE via _month_start, so
+# the curve tracks the run date (dynamic mode) like the base narrative.
+AI_ANNUAL_SPEND_CURRENT_FY = 44_000_000.0        # USD, anchor-FY run-rate target (~0.27% of revenue)
+AI_SPEND_YOY_GROWTH = 0.40                        # ~40% YoY growth narrative
+AI_MONTHS = 36                                    # 3-yr window, same as base model
+
+# Spend split across the surfaces a consulting firm actually runs. Each surface maps
+# to a REAL billing_origin_product and a real attribution path. No fabricated buckets.
+#   in_gateway      → appears in system.ai_gateway.usage (per-request tokens + tags)
+#   billing_product → system.billing.usage.billing_origin_product value (real enum)
+#   external        → provider-billed → system.ai_gateway.external_model_spend (native USD),
+#                     NOT in billing.usage
+#   attrib          → primary attribution path
+AI_SURFACE_MIX = {
+    # surface        share  in_gw  billing_origin_product  external attrib
+    "custom_agent":  (0.36, True,  "MODEL_SERVING",        False,  "request_tags"),   # agents via gateway (Databricks-hosted)
+    "external_model":(0.26, True,  None,                   True,   "request_tags"),   # OpenAI/Anthropic via gateway → external_model_spend
+    "ai_functions":  (0.16, False, "AI_FUNCTIONS",         False,  "budget_policy"),  # ai_classify/extract/summarize
+    "vector_search": (0.12, False, "VECTOR_SEARCH",        False,  "budget_policy"),  # AI Search index/query
+    "genie":         (0.10, False, "GENIE",                False,  "workspace"),      # Genie serverless (PayGo since 7/8/26)
+}
+assert abs(sum(v[0] for v in AI_SURFACE_MIX.values()) - 1.0) < 1e-9, "AI surface mix must sum to 1.0"
+
+# Untagged share per surface → drives Governance Coverage. Genie hardest to attribute.
+AI_UNTAGGED_PROB = {
+    "custom_agent": 0.06, "external_model": 0.10, "ai_functions": 0.16,
+    "vector_search": 0.22, "genie": 0.34,
+}
+
+# Model catalog: (model, provider, destination_type, usd_per_1M_tokens, oss?).
+# destination_type values match the real system.ai_gateway.usage enum:
+#   'EXTERNAL_FOUNDATION_MODEL' (external providers) | 'FOUNDATION_MODEL' (Databricks-hosted).
+# Model catalog — grounded in what Databricks ACTUALLY offers (fact-checked 2026-07-31
+# vs docs.databricks.com FMAPI supported-models + external-models).
+#   destination_type='FOUNDATION_MODEL'          → Databricks-HOSTED (FMAPI, DBU-priced).
+#     Databricks hosts Claude, GPT (OSS), Gemini, Llama, Qwen, GLM + embeddings today.
+#   destination_type='EXTERNAL_FOUNDATION_MODEL' → EXTERNAL model the customer registered
+#     via the gateway with their OWN provider key (OpenAI / Anthropic / Bedrock / Vertex /
+#     Cohere / AI21). Provider-billed → native USD in external_model_spend, NOT billing.usage.
+# We model MOST traffic as Databricks-hosted (the realistic majority once a firm standardizes
+# on FMAPI) + a minority via external models (a client that brought its own OpenAI/Anthropic key).
+AI_MODELS = [
+    # model_name                      provider      destination_type             usd/1M  oss
+    # ── Databricks-hosted (FMAPI) ──
+    ("databricks-claude-sonnet-4-5",  "Anthropic",  "FOUNDATION_MODEL",           9.00,  False),
+    ("databricks-claude-opus-4-1",    "Anthropic",  "FOUNDATION_MODEL",          30.00,  False),
+    ("databricks-gpt-oss-120b",       "OpenAI",     "FOUNDATION_MODEL",           2.00,  False),
+    ("databricks-gemini-2-5-flash",   "Google",     "FOUNDATION_MODEL",           0.55,  False),
+    ("databricks-gemini-2-5-pro",     "Google",     "FOUNDATION_MODEL",           8.75,  False),
+    ("databricks-llama-4-maverick",   "Meta",       "FOUNDATION_MODEL",           1.40,  True),
+    ("databricks-llama-3-3-70b",      "Meta",       "FOUNDATION_MODEL",           1.00,  True),
+    ("databricks-qwen-2-5-72b",       "Alibaba",    "FOUNDATION_MODEL",           0.90,  True),
+    ("databricks-gte-large-en",       "Databricks", "FOUNDATION_MODEL",           0.13,  True),   # embeddings (VS)
+    ("databricks-bge-large-en",       "Databricks", "FOUNDATION_MODEL",           0.10,  True),   # embeddings (VS)
+    # ── External models (customer's own provider key via the gateway) ──
+    ("gpt-4o",                        "OpenAI",     "EXTERNAL_FOUNDATION_MODEL",  7.50,  False),
+    ("claude-sonnet-4-5",             "Anthropic",  "EXTERNAL_FOUNDATION_MODEL",  9.00,  False),
+]
+_MODEL_BY_NAME = {m[0]: m for m in AI_MODELS}
+# Which models each surface tends to use. Agents/AI-functions/genie run mostly on
+# Databricks-hosted frontier + OSS; external_model surface = the registered-external path.
+AI_SURFACE_MODELS = {
+    "custom_agent":   ["databricks-claude-sonnet-4-5", "databricks-llama-4-maverick", "databricks-gemini-2-5-pro", "databricks-gpt-oss-120b"],
+    "external_model": ["gpt-4o", "claude-sonnet-4-5"],   # customer-registered external keys
+    "ai_functions":   ["databricks-llama-3-3-70b", "databricks-qwen-2-5-72b", "databricks-gemini-2-5-flash"],
+    "vector_search":  ["databricks-gte-large-en", "databricks-bge-large-en"],
+    "genie":          ["databricks-llama-4-maverick", "databricks-claude-sonnet-4-5"],
+}
+
+# MODEL_SERVING serverless DBU list price (mirrors a system.billing.list_prices row,
+# pricing.effective_list.default). Databricks-hosted inference cost = DBU × this.
+AI_DBU_LIST_PRICE = 0.070   # $/DBU (illustrative premium-tier serverless GPU rate)
+AI_MODEL_SERVING_SKU = "MODEL_SERVING_GPU_SERVERLESS_DBU"
+_ACCOUNT_ID = "e2demo-proserv-cfo-0001"   # synthetic account_id, constant across rows
+_CLOUD = "AWS"
+
+# Workspaces the firm runs AI in (region → workspace_id). Supports the workspace→
+# engagement/region fallback attribution signal.
+AI_WORKSPACES = {
+    "Americas": "1444828305810485", "EMEA": "2233445566778899", "Asia Pacific": "3344556677889900",
+}
+
+print(f"AI-cost sizing: current-FY target ${AI_ANNUAL_SPEND_CURRENT_FY:,.0f} "
+      f"(~0.27% of ${DEMO_OVERRIDES['firmwide']['annual_revenue']:,} revenue), "
+      f"{AI_SPEND_YOY_GROWTH:.0%} YoY, {AI_MONTHS}-mo window.")
+
+# COMMAND ----------
+
+# DBTITLE 1,AI Cost — budget-policy dim (customer governance config, NOT a system table)
+# MAGIC %md
+# MAGIC ### `bronze_ai_budget_policy`
+# MAGIC The customer's own serverless budget/usage-policy configuration (names, $ limits,
+# MAGIC scope). NOT a system-table mock — on a real deploy this is the customer's governance
+# MAGIC config. Join key `budget_policy_id` already lands in
+# MAGIC `system.billing.usage.usage_metadata.budget_policy_id`. Powers the Budget Performance
+# MAGIC panel (limits + utilization + at-risk) and is the cross-surface attribution fallback.
+
+# COMMAND ----------
+
+print("Generating AI budget policies (customer governance config)...")
+
+# One policy per AI-active cost-center (internal chargeback lens) + engagement-scoped
+# policies for the AI-heavy engagements (client/billable lens).
+_ai_active_cost_centers = [f"CC-{i:04d}" for i in range(1, 41)]   # first 40 CCs run AI
+_ai_engagement_pool = [
+    eid for eid, meta in engagement_lookup.items()
+    if meta["practice"] in ("Managed Services: Tech", "Technology", "Strategy & Consulting")
+]
+random.shuffle(_ai_engagement_pool)
+_ai_scoped_engagements = _ai_engagement_pool[:60]
+
+# Each AI-heavy engagement leans on ONE primary model provider (a real pattern — teams
+# standardize on a provider). Assigned round-robin across the four gateway-reachable
+# providers so the Provider Concentration panel shows a realistic mix (Meta / OpenAI /
+# Anthropic / Gemini) instead of everything collapsing to Meta. This drives the
+# destination_model on each engagement's gateway telemetry rows (see below).
+_GW_PROVIDERS = ["Meta", "OpenAI", "Anthropic", "Google"]
+_eng_pref_provider = {
+    eid: _GW_PROVIDERS[i % len(_GW_PROVIDERS)] for i, eid in enumerate(_ai_scoped_engagements)
+}
+# Persistent per-engagement AI INTENSITY (Pareto-ish) so spend follows a realistic power
+# law — a few engagements dominate, most are modest — instead of every engagement landing
+# at ~the same $. Assigned ONCE here (not per-month) so an engagement's relative size is
+# stable across the whole window. random.paretovariate(alpha) → heavy right tail; alpha≈1.6
+# gives a believable spread (top few 5-10×+ the median). Clamped to avoid absurd outliers.
+_eng_intensity = {
+    eid: min(12.0, max(0.15, random.paretovariate(1.6) - 1.0 + 0.3))
+    for eid in _ai_scoped_engagements
+}
+# Cost-centers get a milder skew (internal usage is less concentrated than client work).
+_cc_intensity = {
+    cc: min(6.0, max(0.2, random.paretovariate(2.2) - 1.0 + 0.4))
+    for cc in _ai_active_cost_centers
+}
+# provider → its model names (from AI_MODELS). Meta/Databricks = hosted; rest = external.
+_PROVIDER_MODELS = {}
+for _m in AI_MODELS:
+    _PROVIDER_MODELS.setdefault(_m[1], []).append(_m[0])
+_EXTERNAL_PROVIDERS = ["OpenAI", "Anthropic"]
+_EXTERNAL_MODELS_ALL = [m for p in _EXTERNAL_PROVIDERS for m in _PROVIDER_MODELS.get(p, [])]
+
+def _gw_model_for(surface, eng_id):
+    """Pick the destination_model for a gateway telemetry row, biased to the engagement's
+    preferred provider (85%) so per-engagement provider concentration is realistic. Only
+    affects gateway telemetry (tokens/provider) — cost is computed from slice $ separately."""
+    pref = _eng_pref_provider.get(eng_id) if eng_id else None
+    if pref and random.random() < 0.85 and _PROVIDER_MODELS.get(pref):
+        return random.choice(_PROVIDER_MODELS[pref])
+    return random.choice(AI_SURFACE_MODELS[surface])
+
+def _ext_model_for(eng_id):
+    """Pick an EXTERNAL model (for external_model_spend native-USD rows). Honours the
+    engagement's preferred provider when that provider is external; Meta-preferred
+    engagements (no external model) get a random external one — their concentration still
+    reads Meta via the hosted/agent gateway rows."""
+    pref = _eng_pref_provider.get(eng_id) if eng_id else None
+    if pref in _EXTERNAL_PROVIDERS and random.random() < 0.85:
+        return random.choice(_PROVIDER_MODELS[pref])
+    return random.choice(_EXTERNAL_MODELS_ALL)
+
+budget_policy_rows = []
+for i, cc in enumerate(_ai_active_cost_centers):
+    budget_policy_rows.append((
+        f"BP-CC-{i+1:04d}", f"{cc} AI Budget Policy", "COST_CENTER", cc, None,
+        _dec(random.uniform(80_000, 600_000)), rand_ts(),
+    ))
+for i, eid in enumerate(_ai_scoped_engagements):
+    meta = engagement_lookup[eid]
+    budget_policy_rows.append((
+        f"BP-ENG-{i+1:04d}", f"{meta['customer']} Engagement AI Policy", "ENGAGEMENT", None, eid,
+        _dec(random.uniform(50_000, 400_000)), rand_ts(),
+    ))
+
+budget_policy_schema = StructType([
+    StructField("budget_policy_id", StringType()),
+    StructField("policy_name", StringType()),
+    StructField("scope_type", StringType()),           # COST_CENTER | ENGAGEMENT
+    StructField("cost_center", StringType()),
+    StructField("engagement_id", StringType()),
+    StructField("annual_budget_usd", DecimalType(38, 18)),
+    StructField("created_date", TimestampType()),
+])
+write_table(spark.createDataFrame(budget_policy_rows, schema=budget_policy_schema), "bronze_ai_budget_policy")
+print(f"  {len(budget_policy_rows):,} policies "
+      f"({len(_ai_active_cost_centers)} cost-center + {len(_ai_scoped_engagements)} engagement)")
+
+_cc_policy_by_cc = {r[3]: r[0] for r in budget_policy_rows if r[2] == "COST_CENTER"}
+_eng_policy_by_eng = {r[4]: r[0] for r in budget_policy_rows if r[2] == "ENGAGEMENT"}
+
+# COMMAND ----------
+
+# DBTITLE 1,AI Cost — list prices (faithful subset of system.billing.list_prices)
+# MAGIC %md
+# MAGIC ### `bronze_ai_list_prices`
+# MAGIC Faithful subset of `system.billing.list_prices`: `pricing` is the real nested
+# MAGIC STRUCT and gold reads `pricing.effective_list.default`.
+
+# COMMAND ----------
+
+print("Generating AI list prices...")
+# pricing struct value = (default, (promotional.default,), (effective_list.default,))
+def _pricing(p):
+    d = _dec(p)
+    return (d, (d,), (d,))
+
+# One DBU-priced SKU per serverless AI surface. Bronze billing rows use SKU
+# `{billing_origin_product}_SERVERLESS_DBU` (MODEL_SERVING uses the GPU SKU), so
+# list_prices must carry a matching row for EACH surface or the gold price-join
+# returns NULL → $0 cost for that surface.
+_AI_DBU_SKUS = [
+    AI_MODEL_SERVING_SKU,                 # MODEL_SERVING (GPU serverless)
+    "AI_FUNCTIONS_SERVERLESS_DBU",
+    "VECTOR_SEARCH_SERVERLESS_DBU",
+    "GENIE_SERVERLESS_DBU",
+]
+list_price_rows = [(
+    _ACCOUNT_ID,
+    datetime.combine(DATE_START, datetime.min.time()), None,
+    sku, _CLOUD, "USD", "DBU",
+    _pricing(AI_DBU_LIST_PRICE),
+) for sku in _AI_DBU_SKUS]
+list_price_schema = StructType([
+    StructField("account_id", StringType()),
+    StructField("price_start_time", TimestampType()),
+    StructField("price_end_time", TimestampType()),
+    StructField("sku_name", StringType()),
+    StructField("cloud", StringType()),
+    StructField("currency_code", StringType()),
+    StructField("usage_unit", StringType()),
+    StructField("pricing", StructType([
+        StructField("default", DecimalType(38, 18)),
+        StructField("promotional", StructType([StructField("default", DecimalType(38, 18))])),
+        StructField("effective_list", StructType([StructField("default", DecimalType(38, 18))])),
+    ])),
+])
+write_table(spark.createDataFrame(list_price_rows, schema=list_price_schema), "bronze_ai_list_prices")
+
+# COMMAND ----------
+
+# DBTITLE 1,AI Cost — monthly spend curve (anchor-relative, ~40% YoY)
+
+# Monthly compounding factor from annual YoY. Anchor month (offset 0) = current-FY
+# monthly run-rate; earlier months scale down by growth^n.
+_monthly_growth = (1.0 + AI_SPEND_YOY_GROWTH) ** (1.0 / 12.0)
+_anchor_month_spend = AI_ANNUAL_SPEND_CURRENT_FY / 12.0
+ai_month_targets = {}
+for n in range(AI_MONTHS):
+    m_start = _month_start(n)
+    target = _anchor_month_spend / (_monthly_growth ** n)
+    ai_month_targets[m_start] = target * (1.0 + random.uniform(-0.06, 0.06))   # ±6% noise
+print(f"  Modeled AI spend over window: ${sum(ai_month_targets.values()):,.0f} "
+      f"(anchor-month run-rate ${_anchor_month_spend:,.0f}; "
+      f"trailing-12 ≈ ${sum(ai_month_targets[_month_start(n)] for n in range(12)):,.0f})")
+
+# COMMAND ----------
+
+# DBTITLE 1,AI Cost — generate gateway usage, billing usage & external spend
+# MAGIC %md
+# MAGIC ### The three telemetry tables
+# MAGIC Per month × surface, allocate the surface's spend across attribution slices
+# MAGIC (engagement or cost-center, plus an untagged remainder), then:
+# MAGIC - **billing.usage** (Databricks-hosted): one aggregate row per slice — DBU = $ ÷ list price.
+# MAGIC - **ai_gateway.usage** (gateway surfaces only): sampled per-request rows carrying tokens + tags.
+# MAGIC - **external_model_spend** (external only): per-window native-USD rows.
+# MAGIC No fabricated 1:1 request→billing FK (that constraint is real — Zack Siegel).
+
+# COMMAND ----------
+
+print("Generating AI gateway usage, billing usage & external model spend...")
+
+# Requesters who run AI (bias to AI/Tech/Strategy, real employee_ids so requester→
+# cost_center joins land). employee_rows idx: 0=id, 7=status, 13=cost_center, 15=practice, 21=region.
+_ai_requester_pool = [
+    r[0] for r in employee_rows
+    if r[7] == "Active" and r[15] in ("Managed Services: Tech", "Technology", "Strategy & Consulting")
+]
+if len(_ai_requester_pool) < 500:
+    _ai_requester_pool = [r[0] for r in employee_rows if r[7] == "Active"][:2000]
+_emp_cc_by_id = {r[0]: r[13] for r in employee_rows}
+_emp_region_by_id = {r[0]: r[21] for r in employee_rows}
+
+# Per-surface average request token size (for deriving request counts + token draws).
+AI_REQ_TOKENS_MEAN = {
+    "custom_agent": 8_000, "external_model": 6_000, "ai_functions": 2_500,
+    "vector_search": 400, "genie": 3_000,
+}
+GW_SAMPLE_CAP = 400   # sampled request rows per surface-month (each weighted to represent the rest)
+
+def _endpoint_name(surface, idx):
+    return {
+        "custom_agent":  f"agent-endpoint-{idx:02d}",
+        "external_model": f"external-proxy-{idx:02d}",
+        "ai_functions":   "ai-functions-serverless",
+        "vector_search":  f"vs-index-{idx:02d}",
+        "genie":          "genie-serverless",
+    }[surface]
+
+def _avg_price_1m(surface):
+    ms = AI_SURFACE_MODELS[surface]
+    return sum(_MODEL_BY_NAME[m][3] for m in ms) / len(ms)
+
+gw_rows, bu_rows, ext_rows = [], [], []
+_req_counter = 0
+
+for m_start, month_target in ai_month_targets.items():
+    m_end = _end_of_month(m_start)
+    m_start_ts = datetime.combine(m_start, datetime.min.time())
+    m_end_ts = datetime.combine(m_end, datetime.max.time().replace(microsecond=0))
+    for surface, (share, in_gw, billing_prod, is_external, attrib) in AI_SURFACE_MIX.items():
+        surface_usd = month_target * share
+        if surface_usd <= 0:
+            continue
+        untagged_prob = AI_UNTAGGED_PROB[surface]
+        # ── build attribution slices for this surface-month ──
+        # Each slice = (weight, cost_center, engagement_id, budget_policy_id, tagged)
+        slices = []
+        if attrib == "request_tags":
+            # gateway agent/external: attribute to engagements (client/billable lens)
+            chosen = random.sample(_ai_scoped_engagements, k=min(18, len(_ai_scoped_engagements)))
+            for eid in chosen:
+                meta = engagement_lookup[eid]
+                lead_cc = _emp_cc_by_id.get(meta.get("lead_partner"))
+                tagged = random.random() > untagged_prob
+                # weight = persistent per-engagement intensity × mild monthly noise → power-law spread
+                slices.append((
+                    _eng_intensity.get(eid, 1.0) * random.uniform(0.8, 1.2),
+                    lead_cc if tagged else None,
+                    eid if tagged else None,
+                    _eng_policy_by_eng.get(eid) if tagged else None,
+                    tagged,
+                ))
+        elif attrib == "budget_policy":
+            # off-gateway serverless: attribute to cost-centers via budget policy
+            chosen = random.sample(_ai_active_cost_centers, k=min(20, len(_ai_active_cost_centers)))
+            for cc in chosen:
+                tagged = random.random() > untagged_prob
+                slices.append((
+                    _cc_intensity.get(cc, 1.0) * random.uniform(0.8, 1.2),
+                    cc if tagged else None,
+                    None,
+                    _cc_policy_by_cc.get(cc) if tagged else None,
+                    tagged,
+                ))
+        else:  # workspace (genie): weak — mostly untagged, some cost-center via run_by
+            chosen = random.sample(_ai_active_cost_centers, k=min(12, len(_ai_active_cost_centers)))
+            for cc in chosen:
+                tagged = random.random() > untagged_prob
+                slices.append((_cc_intensity.get(cc, 1.0) * random.uniform(0.8, 1.2), cc if tagged else None, None, None, tagged))
+        _wsum = sum(s[0] for s in slices) or 1.0
+
+        avg_price = _avg_price_1m(surface)
+        # ── emit rows per slice ──
+        for (w, cc, eng_id, bp_id, tagged) in slices:
+            slice_usd = surface_usd * (w / _wsum)
+            if slice_usd <= 0:
+                continue
+            region = engagement_lookup[eng_id]["region"] if eng_id else random.choice(list(AI_WORKSPACES))
+            ws = AI_WORKSPACES.get(region, AI_WORKSPACES["Americas"])
+            ep = _endpoint_name(surface, (_stable_hash(surface, cc or eng_id or "u") % 8) + 1)
+            ep_id = f"ep-{surface}-{(_stable_hash(ep) % 8) + 1:02d}"
+            # Requester pool for THIS slice — used to vary the per-request requester so
+            # distinct active-user counts are realistic (hundreds/month, not ~1/slice).
+            if cc:
+                slice_pool = [e for e in _ai_requester_pool if _emp_cc_by_id.get(e) == cc] or _ai_requester_pool
+            else:
+                slice_pool = _ai_requester_pool
+            # run_by used for the aggregate billing row + external-spend identity (one per slice is fine there).
+            run_by = random.choice(slice_pool)
+
+            # custom_tags that reach billing.usage (gateway service tags + policy tags)
+            custom_tags = {}
+            if tagged and cc:
+                custom_tags["cost_center"] = cc
+            if tagged and eng_id:
+                custom_tags["engagement"] = eng_id
+
+            if is_external:
+                # EXTERNAL: native USD → external_model_spend; NOT in billing.usage.
+                # Split slice into a few usage windows across the month.
+                n_windows = random.randint(2, 5)
+                for _w in range(n_windows):
+                    _req_counter += 1
+                    model = _ext_model_for(eng_id)
+                    mname, provider, dtype, usd_per_1m, oss = _MODEL_BY_NAME[model]
+                    win_usd = slice_usd / n_windows
+                    ud = rand_date(m_start, m_end)
+                    ext_rows.append((
+                        f"ems-{_req_counter:09d}", _ACCOUNT_ID, ws, ud,
+                        datetime.combine(ud, datetime.min.time()),
+                        datetime.combine(ud, datetime.min.time()) + timedelta(hours=1),
+                        (provider, mname, ep_id, ep, f"dest-{ep_id}", mname),   # usage_metadata struct
+                        (   # custom_tags struct<endpoint_tags, request_tags>
+                            {"cost_center": cc} if (tagged and cc) else {},
+                            {"engagement": eng_id} if (tagged and eng_id) else {},
+                        ),
+                        "USD", _dec(win_usd),
+                        ("STANDARD", win_usd > (avg_price * 0.2)),   # pricing_metadata struct
+                        (run_by, run_by),                             # identity_metadata struct
+                    ))
+            else:
+                # DATABRICKS-HOSTED: aggregate billing.usage row, DBU = $ ÷ list price.
+                dbu = slice_usd / AI_DBU_LIST_PRICE
+                usage_metadata = (ep, ep_id, bp_id, ws if surface == "genie" else None)  # struct
+                identity_metadata = (
+                    run_by,                                    # run_as
+                    run_by,                                    # created_by
+                    run_by,                                    # owned_by
+                    None if random.random() < 0.15 else run_by # run_by (some NULL — real bug)
+                )
+                bu_rows.append((
+                    _ACCOUNT_ID, ws, f"bu-{_stable_hash(m_start, surface, ep, cc, eng_id) % (16**16):016x}",
+                    AI_MODEL_SERVING_SKU if billing_prod == "MODEL_SERVING" else f"{billing_prod}_SERVERLESS_DBU",
+                    _CLOUD, m_start_ts, m_end_ts, m_start,
+                    custom_tags, "DBU", _dec(dbu),
+                    usage_metadata, identity_metadata, billing_prod, "TOKEN",
+                ))
+
+            # gateway per-request rows (custom_agent + external_model only)
+            if in_gw:
+                mean_tok = AI_REQ_TOKENS_MEAN[surface]
+                avg_req_cost = (mean_tok / 1_000_000.0) * avg_price
+                n_req = max(1, int(slice_usd / max(avg_req_cost, 1e-9)))
+                sampled = min(n_req, GW_SAMPLE_CAP)
+                for _ in range(sampled):
+                    _req_counter += 1
+                    model = _gw_model_for(surface, eng_id)
+                    mname, provider, dtype, usd_per_1m, oss = _MODEL_BY_NAME[model]
+                    tks = max(50, int(random.gauss(mean_tok, mean_tok * 0.4)))
+                    in_tok = int(tks * random.uniform(0.55, 0.8))
+                    out_tok = tks - in_tok
+                    cr = int(in_tok * random.uniform(0.0, 0.3))   # cache_read
+                    status = 200 if random.random() > 0.03 else random.choice([429, 500, 400])
+                    req_tags = {"engagement": eng_id} if (tagged and eng_id) else {}
+                    ep_tags = {"cost_center": cc} if (tagged and cc) else {}
+                    src = "EXTERNAL_CLIENT"
+                    # Vary requester PER REQUEST (not per slice) so active-user counts are realistic.
+                    req_requester = random.choice(slice_pool)
+                    gw_rows.append((
+                        _ACCOUNT_ID, ws, f"req-{_req_counter:012d}",
+                        ep_id, ep, ep_tags,
+                        datetime.combine(rand_date(m_start, m_end), datetime.min.time())
+                            + timedelta(seconds=random.randint(0, 86399)),
+                        int(random.uniform(120, 2400)),          # latency_ms (bigint)
+                        dtype, mname, f"dest-{ep_id}", mname,     # destination_type/name/id/model
+                        req_requester, "USER",                   # requester, requester_type
+                        "chat", req_tags,                        # api_type, request_tags
+                        in_tok, out_tok, in_tok + out_tok,       # tokens (bigint)
+                        (cr, 0, 0),                              # token_details struct
+                        status,                                  # status_code (int)
+                        (src, "STANDARD"),                       # invocation_metadata struct
+                    ))
+
+print(f"  gateway usage rows:        {len(gw_rows):,}")
+print(f"  billing usage rows (agg):  {len(bu_rows):,}")
+print(f"  external spend rows:       {len(ext_rows):,}")
+
+# ── bronze_ai_gateway_usage (faithful subset of system.ai_gateway.usage) ──
+gw_schema = StructType([
+    StructField("account_id", StringType()),
+    StructField("workspace_id", StringType()),
+    StructField("request_id", StringType()),
+    StructField("endpoint_id", StringType()),
+    StructField("endpoint_name", StringType()),
+    StructField("endpoint_tags", MapType(StringType(), StringType())),
+    StructField("event_time", TimestampType()),
+    StructField("latency_ms", LongType()),
+    StructField("destination_type", StringType()),
+    StructField("destination_name", StringType()),
+    StructField("destination_id", StringType()),
+    StructField("destination_model", StringType()),
+    StructField("requester", StringType()),
+    StructField("requester_type", StringType()),
+    StructField("api_type", StringType()),
+    StructField("request_tags", MapType(StringType(), StringType())),
+    StructField("input_tokens", LongType()),
+    StructField("output_tokens", LongType()),
+    StructField("total_tokens", LongType()),
+    StructField("token_details", StructType([
+        StructField("cache_read_input_tokens", LongType()),
+        StructField("cache_creation_input_tokens", LongType()),
+        StructField("output_reasoning_tokens", LongType()),
+    ])),
+    StructField("status_code", IntegerType()),
+    StructField("invocation_metadata", StructType([
+        StructField("source", StringType()),
+        StructField("service_tier", StringType()),
+    ])),
+])
+write_table(spark.createDataFrame(gw_rows, schema=gw_schema), "bronze_ai_gateway_usage")
+
+# ── bronze_billing_usage (faithful subset of system.billing.usage) ──
+bu_schema = StructType([
+    StructField("account_id", StringType()),
+    StructField("workspace_id", StringType()),
+    StructField("record_id", StringType()),
+    StructField("sku_name", StringType()),
+    StructField("cloud", StringType()),
+    StructField("usage_start_time", TimestampType()),
+    StructField("usage_end_time", TimestampType()),
+    StructField("usage_date", DateType()),
+    StructField("custom_tags", MapType(StringType(), StringType())),
+    StructField("usage_unit", StringType()),
+    StructField("usage_quantity", DecimalType(38, 18)),
+    StructField("usage_metadata", StructType([
+        StructField("endpoint_name", StringType()),
+        StructField("endpoint_id", StringType()),
+        StructField("budget_policy_id", StringType()),
+        StructField("warehouse_id", StringType()),
+    ])),
+    StructField("identity_metadata", StructType([
+        StructField("run_as", StringType()),
+        StructField("created_by", StringType()),
+        StructField("owned_by", StringType()),
+        StructField("run_by", StringType()),
+    ])),
+    StructField("billing_origin_product", StringType()),
+    StructField("usage_type", StringType()),
+])
+write_table(spark.createDataFrame(bu_rows, schema=bu_schema), "bronze_billing_usage")
+
+# ── bronze_ai_gateway_external_model_spend (faithful subset) ──
+ext_schema = StructType([
+    StructField("record_id", StringType()),
+    StructField("account_id", StringType()),
+    StructField("workspace_id", StringType()),
+    StructField("usage_date", DateType()),
+    StructField("usage_start_time", TimestampType()),
+    StructField("usage_end_time", TimestampType()),
+    StructField("usage_metadata", StructType([
+        StructField("provider", StringType()),
+        StructField("model", StringType()),
+        StructField("endpoint_id", StringType()),
+        StructField("endpoint_name", StringType()),
+        StructField("destination_id", StringType()),
+        StructField("destination_name", StringType()),
+    ])),
+    StructField("custom_tags", StructType([
+        StructField("endpoint_tags", MapType(StringType(), StringType())),
+        StructField("request_tags", MapType(StringType(), StringType())),
+    ])),
+    StructField("usage_unit", StringType()),
+    StructField("usage_quantity", DecimalType(38, 18)),
+    StructField("pricing_metadata", StructType([
+        StructField("service_tier", StringType()),
+        StructField("long_context", BooleanType()),
+    ])),
+    StructField("identity_metadata", StructType([
+        StructField("run_by", StringType()),
+        StructField("run_as", StringType()),
+    ])),
+])
+write_table(spark.createDataFrame(ext_rows, schema=ext_schema), "bronze_ai_gateway_external_model_spend")
+
+# COMMAND ----------
+
 # DBTITLE 1,Data Load Summary
 # MAGIC %md
 # MAGIC ### Data Load Summary
@@ -3384,6 +4014,12 @@ tables = [
     "bronze_sap_profit_centers",
     "bronze_sap_purchase_orders",
     "bronze_cost_center_mapping",
+    # AI Cost & Governance layer
+    "bronze_ai_budget_policy",
+    "bronze_ai_list_prices",
+    "bronze_ai_gateway_usage",
+    "bronze_billing_usage",
+    "bronze_ai_gateway_external_model_spend",
 ]
 
 total_rows = 0

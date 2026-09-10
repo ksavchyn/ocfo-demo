@@ -77,6 +77,27 @@ filters:
     tables: [main.cfo_proserv.gold_regional_pnl, main.cfo_proserv.gold_practice_area_summary, main.cfo_proserv.gold_department_summary]
     sql: gold_regional_pnl.fiscal_period >= DATE_TRUNC('year', CURRENT_DATE()) AND gold_regional_pnl.fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())
 
+  # ── AI Cost & Governance filters ──
+  - display_name: Governed AI Spend
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: gold_ai_cost_observability.is_governed = true
+
+  - display_name: External Model Spend
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: gold_ai_cost_observability.cost_leg = 'EXTERNAL'
+
+  - display_name: Recoverable AI Cost
+    tables: [main.cfo_proserv.gold_ai_cost_by_engagement]
+    sql: gold_ai_cost_by_engagement.recoverability = 'RECOVERABLE'
+
+  - display_name: AI Budgets At Risk
+    tables: [main.cfo_proserv.gold_ai_cost_by_cost_center]
+    sql: gold_ai_cost_by_cost_center.budget_status IN ('AT_RISK', 'OVER_BUDGET')
+
+  - display_name: Provider Concentration Risk
+    tables: [main.cfo_proserv.gold_ai_cost_by_engagement]
+    sql: gold_ai_cost_by_engagement.provider_concentration_flag = true
+
 measures:
   - display_name: AP Aging Days
     tables: [main.cfo_proserv.silver_fact_accounts_payable]
@@ -145,3 +166,21 @@ measures:
   - display_name: WIP Value Total
     tables: [main.cfo_proserv.silver_wip_unbilled]
     sql: SUM(CASE WHEN silver_wip_unbilled.is_wip = true THEN silver_wip_unbilled.billing_amount ELSE 0 END)
+
+
+  # ── AI Cost & Governance measures ──
+  - display_name: Total AI Spend
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: SUM(gold_ai_cost_observability.cost_usd)
+
+  - display_name: External Model Spend
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: SUM(CASE WHEN gold_ai_cost_observability.cost_leg = 'EXTERNAL' THEN gold_ai_cost_observability.cost_usd ELSE 0 END)
+
+  - display_name: AI Governance Coverage Pct
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: CASE WHEN SUM(gold_ai_cost_observability.cost_usd) > 0 THEN SUM(CASE WHEN gold_ai_cost_observability.is_governed THEN gold_ai_cost_observability.cost_usd ELSE 0 END) / SUM(gold_ai_cost_observability.cost_usd) * 100 ELSE 0 END
+
+  - display_name: AI Active Users
+    tables: [main.cfo_proserv.gold_ai_cost_observability]
+    sql: COUNT(DISTINCT gold_ai_cost_observability.run_by)

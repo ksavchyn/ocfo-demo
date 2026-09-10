@@ -510,6 +510,10 @@ The data has TWO plan-vs-actual frames that often disagree — always specify wh
 
 These are independent and may simultaneously show outperformance at one and underperformance at the other. For single-month miss vs `target_revenue`, frame as "missed the monthly stretch target by X%". For 12-month rollup vs `budgeted_revenue`, frame as "vs annual budget."
 
+## AI cost & governance — `gold_ai_cost_*` views
+
+GenAI cost lives in `gold_ai_cost_*` (NOT expense/GL). Derived: hosted=DBU×list price, external=native USD. Trend/%rev→`gold_ai_cost_monthly`. Client→`gold_ai_cost_by_engagement` (`ai_pct_of_invoice`; `recoverability` T&M/Outcome=RECOVERABLE, Fixed Price=REPRICE_AT_RENEWAL). Team→`gold_ai_cost_by_cost_center` (`budget_status`). Coverage=`is_governed` share (rest=shadow AI). Surface/leg→`gold_ai_cost_observability`.
+
 ## Schema-level conventions
 
 These describe how our schema represents financial concepts. They are stable across deployments because the schema shape is preserved through customer mapping.

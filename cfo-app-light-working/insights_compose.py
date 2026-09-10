@@ -1514,6 +1514,14 @@ PAGE_TILES = {
         "Corporate Expenses", "Marketing Expenses",
         "IT & Technology", "Contractors", "Non-FTE Vendors",
     ],
+    # AI Cost & Governance tab — context for pre-caching its 3 fixed chips.
+    "ai": [
+        "AI Spend (TTM)", "AI as % of Revenue", "Cost per Active User",
+        "Frontier vs OSS", "Governance Coverage", "Budgets At Risk",
+        "AI Spend by Practice", "Client AI Spend vs Invoice",
+        "Top Recoverable AI Spend", "Provider Concentration",
+        "AI Spend by Cost Center", "Forecast & Scenario Planning",
+    ],
 }
 
 PAGE_TO_PERSONA_PULL = {
@@ -1665,6 +1673,97 @@ def compose_page_chips(
 # Matches the conceptual model of the original PRESET_QUESTION_MAPPINGS dict
 # (2 hand-authored sub-queries per chip), generalized so it scales to
 # LLM-generated chip texts.
+
+# Chip pre-cache engine selector — MUST match genie_agent.USE_AGENT_MODE so the
+# baked chips replay via the same engine the live path uses. Default ON.
+_PRECACHE_USE_AGENT_MODE = os.environ.get("CFO_USE_AGENT_MODE", "true").strip().lower() in ("1", "true", "yes")
+
+
+def _agent_mode_chip_payload(workspace_client: WorkspaceClient, space_id: str, chip_text: str) -> dict:
+    """Pre-compute ONE chip via the Genie Agent Mode Responses API and return a payload
+    in the AGENT-MODE cache shape that `genie_agent._replay_agent_mode` serves instantly:
+        {"agent_mode_answer": "<synthesized report>",
+         "sub_question_results": [{sub_question, sql, narrative, raw_data, row_count}, ...],
+         "suggested_questions": []}
+    One call does the planning + N SQL queries + synthesis natively (no Opus decompose,
+    no separate Claude synthesis) — the baked answer is agent mode's own report."""
+    import json as _json
+    host = workspace_client.config.host.rstrip("/")
+    url = f"{host}/api/2.0/genie/agents/{space_id}/responses"
+    # Auth via the SDK config's own authenticator — returns the correct Authorization
+    # header for WHATEVER auth type is active (user OAuth locally, M2M/SP in the
+    # serverless pipeline). Hand-grabbing config.oauth_token() threw "OAuth tokens are
+    # not available for runtime authentication" in the pipeline (its auth isn't a
+    # runtime-OAuth flow) → every chip precache failed → cached_agent_payload NULL.
+    headers = {"Content-Type": "application/json"}
+    try:
+        headers.update(workspace_client.config.authenticate() or {})
+    except Exception:
+        # last-resort fallback for auth types that expose a static token
+        _tok = getattr(workspace_client.config, "token", None)
+        if _tok:
+            headers["Authorization"] = f"Bearer {_tok}"
+    body = {"input": [{"type": "message", "role": "user",
+                       "content": [{"type": "input_text", "text": chip_text}]}],
+            "enable_viz": False}
+    sub_results: list[dict] = []
+    reasoning_steps: list[str] = []
+    final_text = ""
+    try:
+        resp = requests.post(url, json=body, headers=headers, timeout=240, stream=True)
+        if not resp.ok:
+            return {"agent_mode_answer": "", "sub_question_results": [], "reasoning_steps": [],
+                    "suggested_questions": [], "_error": f"{resp.status_code}: {resp.text[:200]}"}
+        for raw in resp.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data:"):
+                continue
+            try:
+                ev = _json.loads(raw[5:].strip())
+            except Exception:
+                continue
+            etype = ev.get("type", "")
+            item = ev.get("item", {}) or {}
+            if etype == "response.output_item.done":
+                it = item.get("type", "")
+                if it == "reasoning":
+                    rtxt = "".join(c.get("text", "") for c in item.get("content", []) if c.get("type") == "reasoning_text")
+                    if rtxt.strip():
+                        reasoning_steps.append(rtxt.strip())
+                elif it == "function_call" and item.get("name") == "execute_sql":
+                    try:
+                        args = _json.loads(item.get("arguments", "{}"))
+                    except Exception:
+                        args = {}
+                    sub_results.append({"sub_question": args.get("title", ""),
+                                        "sql": (args.get("sql") or "").strip(),
+                                        "narrative": "", "raw_data": [], "row_count": None})
+                elif it == "message" and item.get("role") == "assistant":
+                    parts = []
+                    for c in item.get("content", []) or []:
+                        if c.get("type") != "output_text":
+                            continue
+                        parts.append(c.get("text", ""))
+                        meta = c.get("metadata") or {}
+                        cols = meta.get("columns")
+                        if cols:
+                            colnames = [col.get("name") for col in cols]
+                            rows = meta.get("preview_rows") or []
+                            raw_rows = [list(r) for r in rows]
+                            placed = False
+                            for s in sub_results:
+                                if meta.get("sql") and s["sql"] == meta["sql"].strip() and not s["raw_data"]:
+                                    s["raw_data"] = raw_rows[:50]; s["row_count"] = meta.get("total_row_count") or len(raw_rows); placed = True; break
+                            if not placed and sub_results and not sub_results[0]["raw_data"]:
+                                sub_results[0]["raw_data"] = raw_rows[:50]; sub_results[0]["row_count"] = meta.get("total_row_count") or len(raw_rows)
+                    final_text = "".join(parts).strip()
+            elif etype in ("response.completed", "response.failed"):
+                break
+    except Exception as e:
+        return {"agent_mode_answer": "", "sub_question_results": [], "reasoning_steps": [],
+                "suggested_questions": [], "_error": f"{type(e).__name__}: {e}"}
+    return {"agent_mode_answer": final_text, "sub_question_results": sub_results,
+            "reasoning_steps": reasoning_steps, "suggested_questions": []}
+
 
 def _orchestrator_genie_query(workspace_client: WorkspaceClient, space_id: str, question: str,
                               max_poll_sec: int = 120) -> dict:
@@ -2197,8 +2296,19 @@ def precache_chip_payload(workspace_client: WorkspaceClient, genie_space_id: str
     The returned shape matches what `_replay_with_synthesis` expects:
         {"sub_question_results": [{sub_question, sql, narrative, raw_data, row_count}, ...],
          "suggested_questions": []}
+
+    When CFO_USE_AGENT_MODE is on (default), route to the Agent Mode engine instead:
+    ONE call does planning + N SQL + synthesis, and we bake agent mode's OWN report
+    into the payload (agent_mode_answer) so replay is instant with NO live synthesis.
     """
     from concurrent.futures import ThreadPoolExecutor
+
+    if _PRECACHE_USE_AGENT_MODE:
+        payload = _agent_mode_chip_payload(workspace_client, genie_space_id, chip_text)
+        # Fall back to the legacy decompose path only if agent mode produced nothing usable.
+        if payload.get("agent_mode_answer") and payload.get("sub_question_results"):
+            return payload
+        print(f"      ⚠ agent-mode chip precache empty ({payload.get('_error','no answer')}); falling back to decompose path")
 
     sub_queries = decompose_chip_to_subqueries(
         workspace_client=workspace_client,
@@ -2262,6 +2372,16 @@ def is_hollow_payload(payload: dict, min_total_rows: int = 5,
     """
     if not isinstance(payload, dict):
         return True, "payload not a dict"
+    # Agent-mode payloads carry a self-synthesized report; if it's substantive AND at
+    # least one sub-query returned rows, trust it (agent mode already reasoned over the
+    # data — the 2-nonempty-subquery heuristic is tuned for the old fixed-fan-out path).
+    if payload.get("agent_mode_answer"):
+        ans = payload["agent_mode_answer"]
+        subs = payload.get("sub_question_results") or []
+        any_rows = any((r.get("row_count") or len(r.get("raw_data") or [])) > 0 for r in subs if isinstance(r, dict))
+        if len(ans) > 200 and any_rows:
+            return False, "ok (agent-mode)"
+        return True, "agent-mode answer too short or no sub-query rows"
     sub_results = payload.get("sub_question_results") or []
     if not sub_results:
         return True, "no sub-query results"

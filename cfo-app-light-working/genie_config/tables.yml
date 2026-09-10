@@ -24,6 +24,14 @@ v2_analytics:
   - main.cfo_proserv.silver_fact_timecards
   # Metric view — canonical KPI definitions (RPP, DSO, utilization, margin)
   - main.cfo_proserv.firm_kpis_mv
+  # AI Cost & Governance layer
+  - main.cfo_proserv.gold_ai_cost_observability
+  - main.cfo_proserv.gold_ai_cost_by_engagement
+  - main.cfo_proserv.gold_ai_cost_by_cost_center
+  - main.cfo_proserv.gold_ai_cost_monthly
+  - main.cfo_proserv.gold_ai_cost_by_practice
+  # Metric view — canonical AI-cost KPI definitions (spend, coverage, cost/user)
+  - main.cfo_proserv.ai_cost_mv
 
 v2_analytics_joins:
   - left_table: main.cfo_proserv.silver_fact_accounts_receivable
@@ -47,6 +55,16 @@ v2_analytics_joins:
   - left_table: main.cfo_proserv.gold_project_profitability
     right_table: main.cfo_proserv.silver_dim_projects
     "on": gold_project_profitability.project_id = silver_dim_projects.project_id
+  # AI-cost spine joins to engagement + client dims for business-context slicing
+  - left_table: main.cfo_proserv.gold_ai_cost_observability
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": gold_ai_cost_observability.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.gold_ai_cost_by_engagement
+    right_table: main.cfo_proserv.silver_dim_projects
+    "on": gold_ai_cost_by_engagement.project_id = silver_dim_projects.project_id
+  - left_table: main.cfo_proserv.gold_ai_cost_by_engagement
+    right_table: main.cfo_proserv.gold_project_profitability
+    "on": gold_ai_cost_by_engagement.project_id = gold_project_profitability.project_id
 
 v2_management:
   # Operational / variance / expense-side

@@ -37,6 +37,9 @@ _WIDGET_DEFAULTS = {
     "CFO_SCHEMA_NAME": "cfo_proserv",
     "CFO_WAREHOUSE_ID": "",
     "CFO_GENIE_SPACE_ID": "",
+    # Task-value fallback (bundle passes {{tasks.provision_genie_space.values.space_id}}
+    # here); used only when CFO_GENIE_SPACE_ID (the explicit deploy var) is empty.
+    "CFO_GENIE_SPACE_ID_TASKVAL": "",
     # Used by _resolve_genie_space_id() as fallback when the task-value
     # reference for CFO_GENIE_SPACE_ID fails to populate. Defaults to "CFO Demo"
     # matching the bundle's genie_space_title default.
@@ -101,6 +104,11 @@ os.environ["CFO_SCHEMA"] = SCHEMA_FQN
 if WAREHOUSE_ID:
     os.environ["CFO_WAREHOUSE_ID"] = WAREHOUSE_ID
 GENIE_SPACE_ID = _config("CFO_GENIE_SPACE_ID", "").strip()
+# Fallback to the task-value param if the explicit deploy var was empty (first-time
+# deploy). The bundle passes both; prefer the var, then the task-value, then (below)
+# a runtime title lookup. This layered resolution is what makes chip pre-caching robust.
+if not GENIE_SPACE_ID:
+    GENIE_SPACE_ID = _config("CFO_GENIE_SPACE_ID_TASKVAL", "").strip()
 GENIE_SPACE_TITLE = _config("CFO_GENIE_SPACE_TITLE", "CFO Demo").strip()
 
 # Defensive runtime title-lookup. The bundle wires
@@ -125,12 +133,29 @@ def _resolve_genie_space_id() -> str:
     try:
         from databricks.sdk import WorkspaceClient as _WC2
         _w = _WC2()
-        for s in _w.genie.list_spaces():
-            if (s.title or "").strip() == GENIE_SPACE_TITLE.strip():
-                print(f"  ✅ found existing space: {s.space_id}")
+        want = GENIE_SPACE_TITLE.strip()
+        # NOTE: list_spaces() returns a GenieListSpacesResponse — the spaces live on
+        # `.spaces`, NOT the response itself (the old `for s in list_spaces()` threw
+        # TypeError, got swallowed, and returned empty → chip pre-caching skipped).
+        resp = _w.genie.list_spaces()
+        spaces = list(getattr(resp, "spaces", None) or [])
+        # 1) exact title match (preferred)
+        for s in spaces:
+            if (s.title or "").strip() == want:
+                print(f"  ✅ found existing space (exact title): {s.space_id}")
                 GENIE_SPACE_ID = s.space_id
                 return GENIE_SPACE_ID
-        print(f"  ⚠️  no space matched title {GENIE_SPACE_TITLE!r}; chip pre-caching will be skipped")
+        # 2) PREFIX match — provision_genie_space can suffix a timestamp onto the title
+        #    (e.g. "CFO Demo 2026-07-24 02:32:23"), which broke exact match and silently
+        #    skipped chip pre-caching (→ cached_agent_payload NULL, chips run live/slow).
+        #    Multiple timestamped copies → newest by title (timestamps sort lexically).
+        prefix_hits = [s for s in spaces if (s.title or "").strip().startswith(want)]
+        if prefix_hits:
+            best = sorted(prefix_hits, key=lambda s: (s.title or ""))[-1]
+            GENIE_SPACE_ID = best.space_id
+            print(f"  ✅ found existing space (title prefix {want!r}, {len(prefix_hits)} match): {GENIE_SPACE_ID} — '{best.title}'")
+            return GENIE_SPACE_ID
+        print(f"  ⚠️  no space matched title {GENIE_SPACE_TITLE!r} (exact or prefix); chip pre-caching will be skipped")
     except Exception as e:
         print(f"  ⚠️  title-lookup fallback failed: {type(e).__name__}: {e}")
     return GENIE_SPACE_ID
@@ -971,8 +996,8 @@ def write_page_chip_rows(page: str, chips: list[dict]) -> int:
     """
     if not _spark_available():
         raise RuntimeError("spark unavailable — cannot write page-chip rows")
-    if page not in ("admin", "finance"):
-        raise ValueError(f"Unknown page {page!r}; expected 'admin' or 'finance'")
+    if page not in ("admin", "finance", "ai"):
+        raise ValueError(f"Unknown page {page!r}; expected 'admin', 'finance', or 'ai'")
 
     from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
 
@@ -1017,8 +1042,11 @@ def write_page_chip_rows(page: str, chips: list[dict]) -> int:
 
     page_chip_followups: list[tuple[int, list[dict]]] = []
 
+    # Deep-dive pages have exactly 3 chips; the AI tab has 6 (bottom bar + section pills), so
+    # don't truncate for "ai".
+    _chip_limit = len(chips) if page == "ai" else 3
     rows = []
-    for i, c in enumerate(chips[:3], start=1):
+    for i, c in enumerate(chips[:_chip_limit], start=1):
         if not isinstance(c, dict):
             continue
         chip_text = c.get("question_text")
@@ -1213,6 +1241,33 @@ if True:
         except Exception as e:
             print(f"  [{page}] FAILED: {type(e).__name__}: {e}")
             continue
+
+    # AI Cost & Governance tab — its 3 chips are FIXED (hardcoded in templates/ai_cost.html),
+    # not LLM-composed. Pre-cache those exact strings so they replay instantly like the
+    # other tabs (cache lookup is by exact question_text). Keep in sync with ai_cost.html.
+    print("\n=== AI COST & GOVERNANCE TAB | CHIPS (fixed) ===")
+    # EXACT current chip set (deduplicated). Cache lookup is by exact question_text, so these
+    # MUST match verbatim: app.py AI_TAB_GENIE_CHIPS (bottom bar + modal) + the 5 rootcause-chip
+    # data-question strings in templates/ai_cost.html (per-section "Ask Genie" pills). Any drift
+    # = cache miss = the chip runs live/slow. 6 unique (2 overlap between bar and pills).
+    AI_TAB_CHIPS = [
+        # Bottom bar + AI-Assistant modal (app.py AI_TAB_GENIE_CHIPS):
+        "How much are we spending on AI, and is it growing?",
+        "Which clients should we reprice on absorbed AI cost?",
+        "How much AI spend is recoverable vs absorbed?",
+        # Per-section "Ask Genie" pills (templates/ai_cost.html) — minus the 2 dupes above:
+        "Which cost centers are furthest over their AI budget, and why?",
+        "Where is AI spend hurting margin, not helping?",
+        "Which fixed-fee engagements carry provider concentration risk?",
+    ]
+    try:
+        ai_chips = [{"question_text": t} for t in AI_TAB_CHIPS]
+        for i, c in enumerate(ai_chips, start=1):
+            print(f"    chip {i}: {c['question_text']}")
+        n = write_page_chip_rows("ai", ai_chips)
+        print(f"  Wrote {n} '_shared/bottom_chip_ai' rows")
+    except Exception as e:
+        print(f"  [ai] FAILED: {type(e).__name__}: {e}")
 
 # COMMAND ----------
 

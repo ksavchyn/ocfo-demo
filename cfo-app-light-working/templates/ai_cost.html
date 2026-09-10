@@ -1,0 +1,557 @@
+<!-- templates/ai_cost.html — AI Cost & Governance tab (custom UI over gold_ai_cost_* views) -->
+{% extends "base.html" %}
+
+{% block title %}AI Cost & Governance - Finance & Admin Control Center{% endblock %}
+
+{% block head %}
+<style>
+    body, html { margin:0 !important; padding:0 !important; background:#fafafa !important; }
+
+    .ai-container { max-width:1400px; margin:0 auto; padding:24px 28px 80px; }
+
+    .ai-page-header { margin-bottom:20px; }
+    .ai-page-header h1 { font-size:22px; font-weight:700; color:#1b2f36; margin:0 0 4px; }
+    .ai-page-header .sub { font-size:13px; color:#5a6b72; margin:0; }
+
+    /* Sticky header (filters + KPI tiles) — pins to the top on scroll (Raj's "freeze the
+       filter + tile panel" ask) so both stay reachable while scrolling the long AI-cost page.
+       Both live in one sticky wrapper so they move as a unit. White backing + shadow so
+       page content scrolls cleanly under. Scoped to .ai-container so other pages are unaffected. */
+    .ai-container .sticky-header {
+        position: sticky; top: 0; z-index: 50;
+        /* Slightly darker than the page (#fafafa) so it reads as a distinct control bar and
+           it's obvious when content scrolls UNDER it. */
+        background: #eceff1; padding: 12px 16px 14px; margin-bottom: 12px;
+        border-bottom: 1px solid #dfe4e6;
+        box-shadow: 0 6px 12px -8px rgba(11,32,38,.22);
+    }
+    .ai-container .sticky-header .filter-controls { margin-bottom: 14px !important; }
+    .ai-container .sticky-header .kpi-row { margin: 0 !important; }
+
+    /* KPI row */
+    .kpi-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin:18px 0 30px; }
+    .kpi-card { background:#fff; border:1px solid #e7ecee; border-radius:10px; padding:16px 16px 14px; box-shadow:0 1px 3px rgba(11,32,38,.05); }
+    .kpi-card .kpi-label { font-size:11.5px; font-weight:600; color:#5a6b72; line-height:1.3; min-height:30px; }
+    .kpi-card .kpi-value { font-size:26px; font-weight:800; color:#1b2f36; margin:6px 0 3px; letter-spacing:-.5px; }
+    .kpi-card .kpi-sub { font-size:11px; color:#8fa3aa; }
+    .kpi-card .kpi-delta { font-size:11.5px; font-weight:700; }
+    .kpi-delta.up { color:#ff6b7a; } .kpi-delta.down { color:#00a972; } .kpi-delta.warn { color:#ffab00; }
+    .kpi-card.good .kpi-value { color:#00a972; }
+    .kpi-card.hot { border-color:#ffd9b0; }
+
+    /* Sections */
+    .ai-section { background:#fff; border:1px solid #e7ecee; border-radius:12px; padding:22px 24px; margin-bottom:24px; box-shadow:0 1px 3px rgba(11,32,38,.05); }
+    .ai-section h2 { font-size:16px; font-weight:700; color:#1b2f36; margin:0 0 4px; }
+    .ai-section .section-sub { font-size:12.5px; color:#5a6b72; margin:0 0 18px; line-height:1.5; }
+    .ai-section .method { font-size:11px; color:#8fa3aa; margin-top:12px; font-style:italic; line-height:1.5; }
+
+    .toggle-row { display:inline-flex; background:#eef2f3; border-radius:8px; padding:3px; margin-bottom:14px; }
+    .toggle-row button { border:none; background:transparent; padding:6px 14px; font-size:12.5px; font-weight:600; color:#5a6b72; border-radius:6px; cursor:pointer; outline:none; -webkit-tap-highlight-color:transparent; }
+    .toggle-row button:focus, .toggle-row button:focus-visible { outline:none; box-shadow:none; }
+    .toggle-row button.active { background:#fff; color:#1b2f36; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+
+    .chart-wrap { position:relative; height:300px; }
+    .chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+
+    table.ai-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    /* Orange header top-border to match the base pages' table aesthetic. */
+    table.ai-table th { text-align:left; padding:9px 10px; color:#5a6b72; font-weight:600; border-top:2px solid #ff5f46; border-bottom:1px solid #e7ecee; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
+    table.ai-table td { padding:9px 10px; border-bottom:1px solid #f0f3f4; color:#1b2f36; }
+    table.ai-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    table.ai-table tr:hover td { background:#fafbfb; }
+    .badge { display:inline-block; padding:2px 9px; border-radius:12px; font-size:10.5px; font-weight:700; }
+    .badge.recoverable { background:#e3f5ee; color:#00875a; }
+    .badge.reprice { background:#ffeef0; color:#d1394b; }
+    .badge.review { background:#fff4e0; color:#b57700; }
+    .badge.over { background:#ffeef0; color:#d1394b; }
+    .badge.risk { background:#fff4e0; color:#b57700; }
+    .badge.ontrack { background:#e3f5ee; color:#00875a; }
+    /* Green solid action buttons to match the base pages' table buttons (Nudge / Send
+       Notification / Collection Nudge), but keeping our leaner padding/size (Kat prefers
+       the less-bulky look). Base green = #00a972; hover darkens. */
+    .nudge-btn { border:none; background:#00a972; color:#fff; font-size:11.5px; font-weight:600; padding:6px 13px; border-radius:6px; cursor:pointer; transition:background .15s ease; }
+    .nudge-btn:hover { background:#00875a; }
+    /* "See more / show top N" row for truncated tables (budget overage list). */
+    .see-more-row td { text-align:center; padding:10px !important; border-bottom:none !important; }
+    .see-more-btn { border:none; background:transparent; color:#4a9cb8; font-size:12px; font-weight:700; cursor:pointer; padding:4px 10px; }
+    .see-more-btn:hover { text-decoration:underline; }
+    /* Root-cause suggested-question chip under the budget table. */
+    .rootcause-bar { margin-top:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .rootcause-bar .rc-label { font-size:11.5px; color:#8fa3aa; font-weight:600; }
+    .rootcause-chip { background:#f0fdf4; color:#374151; border:1.5px solid #dcfce7; border-radius:8px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; transition:all .2s ease; text-align:left; }
+    .rootcause-chip:hover { background:rgba(255,95,70,.15); border-color:#ff5f46; color:#ff5f46; }
+
+    /* Forecast sliders */
+    .forecast-grid { display:grid; grid-template-columns:1.6fr 1fr; gap:26px; align-items:stretch; }
+    /* Chart fills the row height set by the controls column (align-items:stretch);
+       the canvas is absolutely positioned so Chart.js can't grow the row past the
+       controls — keeps the chart the same vertical length as the sliders + text. */
+    .forecast-grid > .chart-wrap { height:auto; min-height:340px; position:relative; }
+    .forecast-grid > .chart-wrap > canvas { position:absolute; inset:0; }
+    .slider-group { margin-bottom:18px; }
+    .slider-group .slabel { font-size:13px; font-weight:700; color:#1b2f36; margin-bottom:6px; }
+    .slider-group .sval { color:#ffab00; font-weight:800; }
+    .slider-group input[type=range] { width:100%; }
+    .capstat { background:#f7f9f9; border:1px solid #e7ecee; border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+    .capstat .k { font-size:11px; color:#5a6b72; font-weight:600; text-transform:uppercase; }
+    .capstat .n { font-size:22px; font-weight:800; color:#1b2f36; margin-top:3px; }
+
+    /* Success toast — same as admin/finance so the AI-cost "Nudge sent successfully!"
+       confirmation actually shows (the markup + showConfirmation() were here but the CSS
+       was missing, so the toast stayed visibility:hidden and nothing appeared). */
+    .confirmation-toast {
+        visibility:hidden; min-width:250px; background:#28a745; color:#fff; text-align:center;
+        border-radius:6px; padding:16px; position:fixed; z-index:1001; left:50%; bottom:30px;
+        transform:translateX(-50%); font-size:14px; box-shadow:0 4px 6px rgba(0,0,0,.1);
+    }
+    .confirmation-toast.show { visibility:visible; animation:fadein .5s, fadeout .5s 2.5s; }
+    @keyframes fadein { from {bottom:0; opacity:0;} to {bottom:30px; opacity:1;} }
+    @keyframes fadeout { from {bottom:30px; opacity:1;} to {bottom:0; opacity:0;} }
+
+    .loading { color:#8fa3aa; font-size:13px; padding:20px; text-align:center; }
+    .pill { font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:8px; vertical-align:middle; }
+    .pill.prop { background:#eef2ff; color:#4a5bd6; } .pill.opt { background:#f0f3f4; color:#5a6b72; }
+
+    /* Genie chat bar — ported verbatim from cfo_landing.html so the chips render
+       identically to the Executive Summary page (light-green pills on a light-gray
+       gradient bar, NOT the default solid-green-on-navy). This CSS is page-local on
+       the landing page and not shared, so it must live here too. */
+    /* EXACT match to cfo_landing.html: the bar spans full width (left:0) and runs
+       UNDER the sidebar (z-index:999, nav sits on top) so the gradient + top border
+       meet the nav flush with NO gap. The 280px sidebar clearance is handled on the
+       CONTAINER (margin-left below), not the bar — mirroring how the base page's
+       body{margin-left:280px} offsets its content while the fixed bar stays left:0. */
+    .genie-chat-bar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+        padding: 35px 0 23px 0; z-index: 999; height: 110px;
+        border-top: 1px solid #e5e7eb !important; box-sizing: border-box;
+    }
+    /* margin-left:280px clears the sidebar so chips don't hide under it, while the
+       bar itself stays flush-left like the base page. */
+    .genie-container { max-width: 1440px; margin: 0 auto 0 280px; padding: 0 30px; display: flex; align-items: center; justify-content: flex-start; }
+    .chat-questions { width: 100%; max-width: 100%; padding: 0; box-sizing: border-box; }
+    .questions-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; margin: 0; }
+    .chat-question-btn {
+        width: 100% !important; padding: 12px 16px !important;
+        background: #f0fdf4 !important; background-color: #f0fdf4 !important;
+        color: #374151 !important; border: 1.5px solid #dcfce7 !important;
+        border-radius: 8px !important; cursor: pointer !important; font-weight: 500 !important;
+        min-height: 56px !important; height: 100% !important; align-self: stretch !important;
+        display: flex !important; align-items: center !important; justify-content: flex-start !important;
+        text-align: left !important; white-space: normal !important; font-size: 13px !important;
+        line-height: 1.4 !important; transition: all 0.2s ease !important;
+    }
+    .chat-question-btn:hover {
+        background: rgba(255, 95, 70, 0.15) !important; background-color: rgba(255, 95, 70, 0.15) !important;
+        border-color: #ff5f46 !important; color: #ff5f46 !important;
+        transform: translateY(-1px) !important; box-shadow: 0 2px 4px rgba(255, 95, 70, 0.15) !important;
+    }
+    /* fixed genie bar overlaps page bottom → give the container room like the landing page */
+    .ai-container { padding-bottom: 140px; }
+
+    /* Inline per-section "Ask Genie:" suggestion pill — mirrors the cost-center screenshot:
+       a soft-green rounded pill with an "Ask Genie:" label, sitting under a section's table/chart. */
+    .ask-genie-inline { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+    .ask-genie-inline .agi-label { font-size: 13px; font-weight: 600; color: #8fa3aa; white-space: nowrap; }
+    .ask-genie-inline .agi-pill {
+        background: #f0fdf4; border: 1.5px solid #dcfce7; border-radius: 10px;
+        padding: 11px 16px; font-size: 13.5px; color: #1b2f36; cursor: pointer;
+        text-align: left; transition: all .2s ease;
+    }
+    .ask-genie-inline .agi-pill:hover {
+        border-color: #00a972; color: #00875a; background: #eafaf1;
+        box-shadow: 0 2px 4px rgba(0,169,114,.12);
+    }
+
+    /* FINAL OVERRIDES — mirror cfo_landing.html's late !important block so the chips
+       render EXACTLY like the base pages (pale-green pills, 3-up, bounded width, no
+       bleed). The base page has this second block; without it the chips can overflow
+       and pick up a brighter fill. Keep in sync with cfo_landing.html. */
+    .genie-chat-bar .questions-grid,
+    .ai-container .questions-grid {
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 12px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    .chat-question-btn,
+    button.chat-question-btn,
+    .chat-questions .chat-question-btn,
+    .questions-grid button {
+        background: #f0fdf4 !important; background-color: #f0fdf4 !important;
+        color: #374151 !important; border: 1.5px solid #dcfce7 !important;
+        width: 100% !important; min-width: 0 !important; max-width: 100% !important;
+        box-sizing: border-box !important; overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .chat-question-btn:hover,
+    button.chat-question-btn:hover,
+    .questions-grid button:hover {
+        background: rgba(255, 95, 70, 0.15) !important; background-color: rgba(255, 95, 70, 0.15) !important;
+        border-color: #ff5f46 !important; color: #ff5f46 !important;
+    }
+    /* Keep all 6 KPI tiles on ONE row down to fairly narrow; only wrap on small screens.
+       Shrink the tile padding/value font a touch so 6 fit without wrapping. */
+    @media (max-width:1400px){ .kpi-row .kpi-card{ padding:13px 12px 12px; } .kpi-card .kpi-value{ font-size:22px; } .kpi-card .kpi-label{ font-size:11px; } }
+    @media (max-width:900px){ .kpi-row{grid-template-columns:repeat(3,1fr);} .chart-grid,.forecast-grid{grid-template-columns:1fr;} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ai-container">
+    <div class="ai-page-header">
+        <h1>AI Cost &amp; Governance</h1>
+        <p class="sub">GenAI spend attributed to clients, engagements, practices, and cost centers — turning AI from an invisible expense into a governed, attributed P&amp;L line item.</p>
+    </div>
+
+    <!-- Sticky header: filters + KPI row pin together at the top on scroll (Raj's "freeze
+         the filter + tile panel" ask). Wrapping both in one sticky block avoids brittle
+         pixel offsets between two independently-sticky elements. -->
+    <div class="sticky-header">
+    <!-- Filters — same set + markup as Executive Summary / Admin (Region / Location /
+         Practice Area / Industry + clear). Shared .filter-controls/.filter-group/.filter-select
+         classes so custom_dropdowns.js (loaded globally in base.html) styles them identically. -->
+    <div class="filter-controls">
+        <div class="filter-group">
+            <label>Region</label>
+            <select id="fRegion" class="filter-select" onchange="AICost.applyFilters()"><option value="All">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Location</label>
+            <select id="fLocation" class="filter-select" onchange="AICost.applyFilters()"><option value="All">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Practice Area</label>
+            <select id="fPractice" class="filter-select" onchange="AICost.applyFilters()"><option value="All">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Industry</label>
+            <select id="fIndustry" class="filter-select" onchange="AICost.applyFilters()"><option value="All">All</option></select>
+        </div>
+        <button class="clear-filters-btn" onclick="AICost.clearFilters()" title="Clear all filters">×</button>
+    </div>
+
+    <!-- KPI ROW -->
+    <div class="kpi-row" id="kpiRow">
+        <div class="kpi-card"><div class="kpi-label">AI Spend (TTM, Actual vs Budget)</div><div class="kpi-value" id="kpiSpend">—</div><div class="kpi-delta up" id="kpiSpendDelta"></div></div>
+        <div class="kpi-card good"><div class="kpi-label">AI as % of Revenue</div><div class="kpi-value" id="kpiPct">—</div><div class="kpi-sub">trailing 12 months</div></div>
+        <div class="kpi-card good"><div class="kpi-label">AI as % of Operating Expenses</div><div class="kpi-value" id="kpiPctOpex">—</div><div class="kpi-sub">trailing 12 months</div></div>
+        <div class="kpi-card"><div class="kpi-label">Frontier vs OSS (% of spend)</div><div class="kpi-value" id="kpiMix">—</div><div class="kpi-sub" id="kpiMixSub"></div></div>
+        <div class="kpi-card good"><div class="kpi-label">Governance Coverage</div><div class="kpi-value" id="kpiCov">—</div><div class="kpi-sub">of AI spend explicitly tagged</div></div>
+    </div>
+    </div><!-- /.sticky-header -->
+
+    <!-- GENIE CHIPS — same markup/classes as the landing page's genie chat bar -->
+    <div class="genie-chat-bar">
+        <div class="genie-container">
+            <div class="chat-questions">
+                <div class="user-questions active">
+                    <div class="questions-grid">
+                        {% for q in genie_chips %}
+                        <button class="chat-question-btn" data-question="{{ q|e }}" onclick="askGenie(this.dataset.question)">{{ q }}</button>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COCKPIT -->
+    <div class="ai-section">
+        <h2>AI Spend &amp; Budget Cockpit</h2>
+        <p class="section-sub">AI inference spend over time, and a breakdown of where it lands. Flip the breakdown between office, model provider, and service type — same total, three cuts.</p>
+        <div class="chart-grid">
+            <div>
+                <div style="font-size:12.5px;font-weight:700;color:#1b2f36;margin-bottom:8px">AI Spend Trend &amp; % of Revenue</div>
+                <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+            </div>
+            <div>
+                <div class="toggle-row" id="officeToggle">
+                    <button class="active" data-mode="office" onclick="AICost.setOfficeMode('office', this)">By office</button>
+                    <button data-mode="model" onclick="AICost.setOfficeMode('model', this)">By model type</button>
+                    <button data-mode="service" onclick="AICost.setOfficeMode('service', this)">By service type</button>
+                </div>
+                <div class="chart-wrap"><canvas id="officeChart"></canvas></div>
+            </div>
+        </div>
+        <p class="method">Method: attributed AI cost from the spine, grouped by the selected dimension. "Model type" splits by provider (Anthropic / OpenAI / Google frontier vs. Databricks-hosted OSS); "service type" splits by surface (Model Serving / AI Functions / AI Search / Genie). % of revenue joins firmwide monthly revenue.</p>
+    </div>
+
+    <!-- SPEND CONTROLS -->
+    <div class="ai-section">
+        <h2>Enforce Internal Spend Controls</h2>
+        <p class="section-sub">AI budget performance by cost center — your existing budget policies, sorted by utilization.</p>
+        <table class="ai-table" id="ccTable">
+            <thead><tr><th>Cost Center</th><th>Department</th><th>Budget Policy</th><th class="num">TTM AI Cost</th><th class="num">Annual Budget</th><th class="num">Utilization</th><th>Status</th><th>Initiate Action</th></tr></thead>
+            <tbody><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+        </table>
+        <div class="rootcause-bar">
+            <span class="rc-label">Ask Genie:</span>
+            <button class="rootcause-chip" data-question="Which cost centers are furthest over their AI budget, and why?" onclick="askGenie(this.dataset.question)">Which cost centers are furthest over their AI budget, and why?</button>
+        </div>
+    </div>
+
+    <!-- CLIENT AI SPEND vs INVOICE — chart on top, recoverable table below = action layer -->
+    <div class="ai-section">
+        <h2>Client AI Spend vs. Invoice Value</h2>
+        <p class="section-sub">AI spend as a share of each client's project invoice value — see it as a chart, then act on it in the table below.</p>
+        <div class="chart-wrap" style="height:340px"><canvas id="clientChart"></canvas></div>
+        <p class="method">Method: attributed AI $ per engagement ÷ recognized revenue (engagement P&amp;L). Top clients by AI spend shown.</p>
+        <div class="rootcause-bar">
+            <span class="rc-label">Ask Genie:</span>
+            <button class="rootcause-chip" data-question="Which clients should we reprice on absorbed AI cost?" onclick="askGenie(this.dataset.question)">Which clients should we reprice on absorbed AI cost?</button>
+        </div>
+
+        <h2 style="margin-top:26px">Top Recoverable AI Spend</h2>
+        <p class="section-sub">Recoverability is driven by contract type: Time &amp; Materials / Outcome-Based engagements pass AI cost through (billable now); Fixed Price absorbs it (margin erosion — the lever is repricing at renewal). This table is where you action what the chart shows.</p>
+        <table class="ai-table" id="recoverTable">
+            <thead><tr><th>Client</th><th>Project</th><th class="num">Attributed AI Spend</th><th>Contract Type</th><th>Recoverability</th><th>Initiate Action</th></tr></thead>
+            <tbody><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+        </table>
+        <div class="rootcause-bar">
+            <span class="rc-label">Ask Genie:</span>
+            <button class="rootcause-chip" data-question="How much AI spend is recoverable vs absorbed?" onclick="askGenie(this.dataset.question)">How much AI spend is recoverable vs absorbed?</button>
+        </div>
+    </div>
+
+    <!-- VALUE LENS -->
+    <div class="ai-section">
+        <h2>AI Value Lens</h2>
+        <p class="section-sub">One cost spine, two value stories — toggle the lens: AI as <b>delivery cost</b> on client engagements, or AI as <b>product investment</b> in the firm's own offerings.</p>
+        <div class="toggle-row" id="valueToggle">
+            <button class="active" data-mode="delivery" onclick="AICost.setValueMode('delivery', this)">Client delivery</button>
+            <button data-mode="productization" onclick="AICost.setValueMode('productization', this)">Product investment</button>
+        </div>
+        <div id="valueDelivery">
+            <div class="chart-wrap" style="height:360px"><canvas id="valueScatter"></canvas></div>
+            <p class="method">Method: x = attributed AI spend ÷ timecard delivery hours; y = engagement margin from the firm's project P&amp;L; bubble = contract value. All from data every consulting firm keeps — timecards, engagement P&amp;L, contracts — joined on the attribution spine.</p>
+            <div class="rootcause-bar">
+                <span class="rc-label">Ask Genie:</span>
+                <button class="rootcause-chip" data-question="Where is AI spend hurting margin, not helping?" onclick="askGenie(this.dataset.question)">Where is AI spend hurting margin, not helping?</button>
+            </div>
+        </div>
+        <div id="valueProductization" style="display:none">
+            <div class="chart-wrap" style="height:360px"><canvas id="prodChart"></canvas></div>
+            <p class="method"><b>Illustrative.</b> Bars = each offering's revenue; the line = <b>return on AI build spend</b> (revenue per $1 invested), colored green/amber/red vs. the firm's blended average. The point isn't "more AI = more revenue" — it's the <b>dispersion</b>: the biggest-revenue offering isn't the most capital-efficient. Hover for each offering's AI build spend + return. For a firm that productizes services, both inputs are real: per-offering revenue from the product P&amp;L, AI build spend attributed off the cost spine. Association, not causation — connect your own per-offering P&amp;L to make it live.</p>
+        </div>
+    </div>
+
+    <!-- PROVIDER CONCENTRATION -->
+    <div class="ai-section">
+        <h2>Provider Concentration</h2>
+        <p class="section-sub">Engagements with more than 50% of their AI calls on a single provider — a resilience risk if that provider has an outage or price change.</p>
+        <table class="ai-table" id="concTable">
+            <thead><tr><th>Client</th><th>Engagement</th><th>Dominant Provider</th><th class="num">% on One Provider</th><th class="num">AI Spend</th><th>Initiate Action</th></tr></thead>
+            <tbody><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+        </table>
+        <div class="rootcause-bar">
+            <span class="rc-label">Ask Genie:</span>
+            <button class="rootcause-chip" data-question="Which fixed-fee engagements carry provider concentration risk?" onclick="askGenie(this.dataset.question)">Which fixed-fee engagements carry provider risk?</button>
+        </div>
+    </div>
+
+    <!-- FORECAST -->
+    <div class="ai-section">
+        <h2>Forecast &amp; Scenario Planning</h2>
+        <p class="section-sub">The CFO sets the macro constraints — AI spend should stay under a set share of the IT budget and of billable revenue. The projection shows whether the trajectory stays inside the guardrails or breaches them.</p>
+        <div class="forecast-grid">
+            <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
+            <div>
+                <div class="slider-group">
+                    <div class="slabel">Usage growth <span class="sval" id="grV">40%</span> <span style="color:#8fa3aa;font-weight:500">/ yr</span></div>
+                    <input type="range" id="grS" min="0" max="120" step="5" value="40" oninput="AICost.updateForecast()">
+                </div>
+                <div class="slider-group">
+                    <div class="slabel">AI as % of IT budget <span class="sval" id="itV">3.0%</span> <span style="color:#8fa3aa;font-weight:500">ceiling</span></div>
+                    <input type="range" id="itS" min="1" max="8" step="0.5" value="3" oninput="AICost.updateForecast()">
+                </div>
+                <div class="slider-group">
+                    <div class="slabel">AI as % of billable revenue <span class="sval" id="brV">0.35%</span> <span style="color:#8fa3aa;font-weight:500">ceiling</span></div>
+                    <input type="range" id="brS" min="0.1" max="1" step="0.05" value="0.35" oninput="AICost.updateForecast()">
+                </div>
+                <div class="capstat"><div class="k">Binding ceiling (tightest limit)</div><div class="n" id="tCeil">—</div></div>
+                <div class="capstat"><div class="k">Headroom vs ceiling</div><div class="n" id="tHead">—</div></div>
+                <p class="method" style="margin-top:4px">Drag <b>usage growth</b> to flex the forecast; the two ceiling lines move with the budget sliders. The lower of the two is the tightest limit — the one that actually applies. Assumptions: IT budget ~$1.6B/qtr; billable revenue ~$6B/qtr (illustrative — swap for actuals).</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Genie chat modal (same structure the other tabs use; driven by modal.js) ═══ -->
+<div id="chatModal" class="chat-modal">
+    <div class="chat-modal-content">
+        <div class="chat-modal-header">
+            <div class="chat-title">
+                <span class="genie-sparkle">✨</span>
+                <span>AI Assistant</span>
+            </div>
+            <button class="chat-close" onclick="closeChatModal()">✕</button>
+        </div>
+        <div id="questionSelectorView" style="display: none;">
+            <p class="ai-assistant-intro">Select a question or type your own:</p>
+            <div class="ai-questions-grid" id="modalQuestionsGrid"></div>
+            <div class="ai-custom-question">
+                <input type="text" class="ai-input" id="modalCustomInput" placeholder="Type your question here..." onkeypress="handleModalInputKeyPress(event)">
+                <button class="ai-send-btn" onclick="sendModalCustomQuestion()">Ask</button>
+            </div>
+        </div>
+        <div id="chatView">
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask follow-up questions...">
+                <button class="send-btn" onclick="sendChatMessage()">Send</button>
+                <button id="exportDataBtn" class="export-btn" onclick="exportData()" style="display: none;">📥 Export CSV</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Email modal (copied from admin.html — identical structure/behavior) ═══ -->
+<div class="email-modal" id="emailModal">
+    <div class="email-content">
+        <div class="email-header">
+            <div>
+                <h3 class="email-title" id="emailModalTitle">Draft Email</h3>
+                <p style="color: white; font-size: 0.875rem; margin: 4px 0 0 0;">Review and customize the AI-generated email before sending</p>
+            </div>
+            <span class="ai-badge"><i class="fas fa-magic"></i> AI Generated</span>
+        </div>
+        <div class="email-body">
+            <div class="email-form-group">
+                <label>To:</label>
+                <input type="text" id="emailTo" readonly>
+            </div>
+            <div class="email-form-group">
+                <label>CC:</label>
+                <input type="text" id="emailCc" placeholder="Add recipients...">
+            </div>
+            <div class="email-form-group">
+                <label>Subject:</label>
+                <input type="text" id="emailSubject">
+            </div>
+            <div class="email-form-group" style="flex: 1; display: flex; flex-direction: column;">
+                <label>Email Body:</label>
+                <textarea id="emailContent" style="flex: 1; min-height: 300px;"></textarea>
+            </div>
+        </div>
+        <div class="email-footer">
+            <div class="rewrite-section">
+                <button class="ai-rewrite-button" id="regenerateBtn" onclick="showToneSelector()">
+                    <i class="fas fa-sync-alt"></i> AI Rewrite
+                </button>
+                <div class="tone-selector" id="toneSelector" style="display: none;">
+                    <span class="tone-label">Select tone:</span>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('professional')">Professional</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('friendly')">Friendly</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('urgent')">Urgent</button>
+                    <button class="tone-btn" onclick="regenerateEmailWithTone('casual')">Casual</button>
+                </div>
+            </div>
+            <div class="action-buttons">
+                <button class="cancel-button" onclick="closeModal()">Cancel</button>
+                <button class="send-button" onclick="sendEmail()"><i class="fas fa-paper-plane"></i> Send Email</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="confirmationToast" class="confirmation-toast"><span id="toastMessage"></span></div>
+
+<!-- modal.js provides the Genie chat modal (askGenie streaming + markdown). -->
+<script src="{{ url_for('static', filename='modal.js') }}?v={{ range(1000, 9999) | random }}"></script>
+<script>
+// ── Email-modal state + logic (adapted from admin.html for AI-cost nudges) ──
+let currentAction = null;
+let rewriteCount = 0;
+let loadingInterval = null, dotCount = 0;
+
+// Called by AICost.nudge(row). Builds the ai_nudge context + opens the modal.
+window.openAICostEmail = function (row) {
+    const action = row.action || 'Review';
+    // Recipient depends on the action's audience:
+    //  - budget overrun → department head; engagement recover/reprice → engagement lead;
+    //  - provider concentration → platform/architecture owner.
+    let to, title, audience, ctx;
+    if (row.kind === 'budget') {
+        to = `${(row.department || 'department').toLowerCase().replace(/\s+/g,'.')}.head@company.com`;
+        title = 'Nudge Department Head — AI Budget';
+        audience = 'department head';
+        ctx = `${row.cost_center} (${row.department}) AI spend is ${fmtPctLocal(row.utilization_pct)} of its annual budget policy (TTM AI cost ${fmtUSDLocal(row.ttm_cost)} vs budget ${fmtUSDLocal(row.budget)}, status ${row.status}). Ask the department head to re-examine the annual budget limits and how the team is spending against them.`;
+    } else if (row.kind === 'provider') {
+        to = 'ai.platform.lead@company.com';
+        title = 'Flag Provider Concentration';
+        audience = 'AI platform lead';
+        ctx = `${row.client} — ${row.project} runs ${fmtPctLocal(row.pct_one_provider)} of its AI calls on a single provider (${row.dominant_provider}); attributed AI spend ${fmtUSDLocal(row.ai_cost)}. Resilience risk if that provider has an outage or price change. Endpoints in use: ${row.endpoints || 'see gateway'}. Recommend configuring fallbacks + traffic splits on those endpoints.`;
+    } else {
+        to = 'engagement.lead@company.com';
+        title = action === 'Generate Usage Summary' ? 'Generate Client Usage Summary' : 'Flag for Margin Review';
+        audience = 'engagement lead';
+        ctx = `${action}: ${row.client} — ${row.project}. Attributed AI spend ${fmtUSDLocal(row.ai_cost)}, contract type ${row.contract_type}, AI as ${fmtPctLocal(row.ai_pct_invoice)} of invoice.`;
+    }
+    currentAction = { type: 'ai_nudge', action, audience, context: ctx };
+    document.getElementById('emailModalTitle').textContent = title;
+    document.getElementById('emailModal').classList.add('active');
+    document.getElementById('emailTo').value = to;
+    rewriteCount = 0;
+    generateEmail('ai_nudge');
+};
+
+function fmtUSDLocal(v){ v=+v||0; if(Math.abs(v)>=1e9)return '$'+(v/1e9).toFixed(2)+'B'; if(Math.abs(v)>=1e6)return '$'+(v/1e6).toFixed(1)+'M'; if(Math.abs(v)>=1e3)return '$'+(v/1e3).toFixed(0)+'K'; return '$'+v.toFixed(0);}
+function fmtPctLocal(v){ return v==null?'—':(+v).toFixed(1)+'%'; }
+
+async function generateEmail(type, isRewrite = false, tone = null) {
+    const emailSubject = document.getElementById('emailSubject');
+    const emailContent = document.getElementById('emailContent');
+    if (!isRewrite) rewriteCount = 0;
+    emailSubject.value = 'AI is crafting your subject line...';
+    emailContent.value = 'AI is composing your email...';
+    startLoadingAnimation();
+    try {
+        const body = { type: 'ai_nudge', action: currentAction.action, context: currentAction.context, rewrite_count: rewriteCount };
+        if (tone) body.tone = tone;
+        const r = await fetch('/api/generate-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        stopLoadingAnimation();
+        emailSubject.value = d.subject || 'AI Cost — Action';
+        emailContent.value = d.body || currentAction.context;
+    } catch (e) {
+        stopLoadingAnimation();
+        emailSubject.value = currentAction.action;
+        emailContent.value = currentAction.context;
+    }
+}
+function startLoadingAnimation(){
+    // Cycling loading messages — identical to the Finance/Admin email modal for consistency.
+    dotCount = 0;
+    const messages = [
+        '🔍 Analyzing engagement data',
+        '📊 Reviewing AI cost details',
+        '✍️ Crafting personalized content',
+        '⚡ Optimizing for clarity',
+        '📝 Finalizing email draft'
+    ];
+    let messageIndex = 0;
+    const el = document.getElementById('emailContent');
+    if (el) el.classList.add('loading-indicator');
+    loadingInterval = setInterval(() => {
+        dotCount = (dotCount + 1) % 4;
+        const dots = '.'.repeat(dotCount);
+        const spaces = ' '.repeat(3 - dotCount);
+        if (dotCount === 0) messageIndex = (messageIndex + 1) % messages.length;
+        document.getElementById('emailContent').value =
+            `AI is composing your email${dots}${spaces}\n\n⏳ ${messages[messageIndex]}\n\n💡 Generating with optimized prompts (5-10 seconds).`;
+    }, 500);
+}
+function stopLoadingAnimation(){ if(loadingInterval){clearInterval(loadingInterval);loadingInterval=null;} const el=document.getElementById('emailContent'); if(el)el.classList.remove('loading-indicator'); }
+function showToneSelector(){ const t=document.getElementById('toneSelector'); t.style.display=t.style.display==='none'?'flex':'none'; }
+async function regenerateEmailWithTone(tone){ const btn=document.getElementById('regenerateBtn'); const orig=btn.innerHTML; document.getElementById('toneSelector').style.display='none'; rewriteCount++; btn.innerHTML='<i class="fas fa-sync fa-spin"></i> Regenerating...'; btn.disabled=true; try{ await generateEmail('ai_nudge', true, tone);} finally { btn.innerHTML=orig; btn.disabled=false; } }
+async function sendEmail(){ showConfirmation('Nudge sent successfully!'); closeModal(); }
+function closeModal(){ document.getElementById('emailModal').classList.remove('active'); currentAction=null; rewriteCount=0; }
+function showConfirmation(msg){ const t=document.getElementById('confirmationToast'); document.getElementById('toastMessage').textContent=msg; t.className='confirmation-toast show'; setTimeout(()=>{t.className='confirmation-toast';},3000); }
+window.addEventListener('click', (e)=>{ if(e.target===document.getElementById('emailModal')) closeModal(); });
+</script>
+<script src="{{ url_for('static', filename='js/ai_cost.js') }}?v={{ range(1000, 9999) | random }}"></script>
+{% endblock %}

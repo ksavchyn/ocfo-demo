@@ -1044,6 +1044,21 @@
         "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, customer))\n",
         "      GROUP BY DATE_TRUNC('MONTH', fiscal_period)\n",
         "    ),\n",
+        "    ai_months AS (\n",
+        "      -- AI inference spend per month, from the AI cost spine (same window + filters).\n",
+        "      SELECT\n",
+        "        DATE_TRUNC('MONTH', fiscal_period) as month,\n",
+        "        SUM(cost_usd) as ai_spend\n",
+        "      FROM main.cfo_proserv_dev.gold_ai_cost_observability\n",
+        "      WHERE\n",
+        "        fiscal_period >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -6) AND fiscal_period < DATE_TRUNC('MONTH', CURRENT_DATE())\n",
+        "        AND (:region IS NULL OR array_size(:region) = 0 OR array_contains(:region, 'All') OR array_contains(:region, engagement_region))\n",
+        "        AND (:location IS NULL OR array_size(:location) = 0 OR array_contains(:location, 'All') OR array_contains(:location, engagement_location))\n",
+        "        AND (:practice_area IS NULL OR array_size(:practice_area) = 0 OR array_contains(:practice_area, 'All') OR array_contains(:practice_area, practice_area))\n",
+        "        AND (:industry IS NULL OR array_size(:industry) = 0 OR array_contains(:industry, 'All') OR array_contains(:industry, engagement_industry))\n",
+        "        AND (:customer IS NULL OR array_size(:customer) = 0 OR array_contains(:customer, 'All') OR array_contains(:customer, client_name))\n",
+        "      GROUP BY DATE_TRUNC('MONTH', fiscal_period)\n",
+        "    ),\n",
         "    budget_trend AS (\n",
         "      SELECT\n",
         "        AVG(budgeted_expenses) as avg_budget,\n",
@@ -1055,6 +1070,11 @@
         "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN other_expenses     END) as last_other\n",
         "      FROM months_data\n",
         "      WHERE month >= ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -3)\n",
+        "    ),\n",
+        "    ai_budget_trend AS (\n",
+        "      SELECT\n",
+        "        MAX(CASE WHEN month = ADD_MONTHS(DATE_TRUNC('MONTH', CURRENT_DATE()), -1) THEN ai_spend END) as last_ai\n",
+        "      FROM ai_months\n",
         "    ),\n",
         "    future_months AS (\n",
         "      SELECT\n",
@@ -1085,20 +1105,22 @@
         "      m.marketing_expenses,\n",
         "      m.tech_expenses,\n",
         "      m.other_expenses,\n",
+        "      CASE WHEN m.period_type = 'historical' THEN ai.ai_spend ELSE NULL END as ai_spend,\n",
         "      CASE WHEN m.period_type = 'future' THEN b.last_billable  * POWER(1.025, m.month_offset) ELSE NULL END as billable_expenses_forecast,\n",
         "      CASE WHEN m.period_type = 'future' THEN b.last_corporate * POWER(1.020, m.month_offset) ELSE NULL END as corporate_expenses_forecast,\n",
         "      CASE WHEN m.period_type = 'future' THEN b.last_marketing * POWER(1.030, m.month_offset) ELSE NULL END as marketing_expenses_forecast,\n",
         "      CASE WHEN m.period_type = 'future' THEN b.last_tech      * POWER(1.025, m.month_offset) ELSE NULL END as tech_expenses_forecast,\n",
         "      CASE WHEN m.period_type = 'future' THEN b.last_other     * POWER(1.020, m.month_offset) ELSE NULL END as other_expenses_forecast,\n",
+        "      CASE WHEN m.period_type = 'future' THEN ab.last_ai       * POWER(1.035, m.month_offset) ELSE NULL END as ai_spend_forecast,\n",
         "      CASE\n",
         "        WHEN m.period_type = 'historical' THEN m.budgeted_expenses\n",
         "        ELSE b.last_month_budget * POWER(1.025, m.month_offset)\n",
         "      END as budgeted_expenses\n",
         "    FROM all_months m\n",
         "    CROSS JOIN budget_trend b\n",
-        "    ORDER BY m.month\n",
-        "\n",
-        "\n"
+        "    CROSS JOIN ai_budget_trend ab\n",
+        "    LEFT JOIN ai_months ai ON m.month = ai.month\n",
+        "    ORDER BY m.month\n"
       ],
       "parameters": [
         {
@@ -3041,6 +3063,10 @@
                       "expression": "`other_expenses`"
                     },
                     {
+                      "name": "ai_spend",
+                      "expression": "`ai_spend`"
+                    },
+                    {
                       "name": "billable_expenses_forecast",
                       "expression": "`billable_expenses_forecast`"
                     },
@@ -3059,6 +3085,10 @@
                     {
                       "name": "other_expenses_forecast",
                       "expression": "`other_expenses_forecast`"
+                    },
+                    {
+                      "name": "ai_spend_forecast",
+                      "expression": "`ai_spend_forecast`"
                     },
                     {
                       "name": "budgeted_expenses",
@@ -3096,6 +3126,7 @@
                   "#D95F6E",
                   "#E88892",
                   "#F2A6AD",
+                  "#FFD200",
                   "#646E7B",
                   "#798595",
                   "#8E9CAF",
@@ -3104,6 +3135,7 @@
                     "themeColorType": "visualizationColors",
                     "position": 9
                   },
+                  "#FFD200",
                   "#56170D",
                   {
                     "themeColorType": "visualizationColors",
@@ -3168,6 +3200,10 @@
                         "displayName": "Other Expenses"
                       },
                       {
+                        "fieldName": "ai_spend",
+                        "displayName": "AI Spend"
+                      },
+                      {
                         "fieldName": "billable_expenses_forecast",
                         "displayName": "Billable Expenses - Forecast"
                       },
@@ -3186,6 +3222,10 @@
                       {
                         "fieldName": "other_expenses_forecast",
                         "displayName": "Other Expenses - Forecast"
+                      },
+                      {
+                        "fieldName": "ai_spend_forecast",
+                        "displayName": "AI Spend (forecast)"
                       }
                     ]
                   },
