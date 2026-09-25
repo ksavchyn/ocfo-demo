@@ -1,0 +1,38 @@
+# TEMPLATE — the checked-in form of this file holds bundle-variable
+# placeholders, NOT resolved values. Source of truth for these env vars is
+# databricks.yml (apps.cfo-demo-test.config.env); keep this block in sync
+# with it.
+#
+# At deploy time scripts/build_app_yml.py (invoked by ./deploy.sh) overwrites
+# this file in place with the values resolved for the target workspace, then
+# the second `databricks bundle deploy` syncs the resolved copy to the app
+# source. DO NOT commit that resolved copy — the repo keeps only this template.
+#
+# Why this file exists at all: the Databricks Apps runtime reads env from
+# app.yml in the source code, not from the resource-level config the bundle
+# sets. So the bundle's resolved env values are materialized here at deploy
+# time.
+
+command:
+  - "python"
+  - "app.py"
+
+env:
+  - name: "SQL_WAREHOUSE_ID"
+    value: "${var.warehouse_id}"
+  - name: "CFO_SCHEMA"
+    value: "${var.catalog}.${var.schema_name}"
+  - name: "CFO_GENIE_SPACE_ID"
+    value: "${var.genie_space_id}"
+  - name: "CFO_CLAUDE_GATEWAY_URL"
+    value: "${var.claude_endpoint_url}"
+  - name: "CFO_CLAUDE_MODEL"
+    value: "${var.claude_model}"
+  - name: "CFO_CLAUDE_MODEL_COMPOSE"
+    value: "${var.claude_model_compose}"
+  - name: "CFO_CLAUDE_MODEL_AGENT"
+    value: "${var.claude_model_agent}"
+  - name: "CFO_DASHBOARD_FINANCE_URL"
+    value: "${workspace.host}/embed/dashboardsv3/${var.finance_dashboard_id}"
+  - name: "CFO_DASHBOARD_ADMIN_URL"
+    value: "${workspace.host}/embed/dashboardsv3/${var.admin_dashboard_id}"

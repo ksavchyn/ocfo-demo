@@ -1,10 +1,10 @@
 # CFO Operations Platform — Customer Deploy Guide
 
-A Databricks Asset Bundle that deploys a CFO Operations Platform demo: synthetic financial data, a Genie space, two AI/BI dashboards, a Databricks App with chat UI and persona-keyed insight tiles, and a Claude-powered orchestrator that pre-computes root-cause analyses against the Genie space.
+A Databricks Asset Bundle that deploys a CFO Operations Platform demo: synthetic financial data, a Genie space, two AI/BI dashboards, a Databricks App with chat UI and persona-keyed insight tiles, an AI Cost & Governance tab that attributes GenAI spend to clients / engagements / practices / cost centers, and a Claude-powered orchestrator that pre-computes root-cause analyses against the Genie space.
 
 This guide takes you from `git clone` to a working demo running on **your** real data.
 
-> **Bundle code lives in `cfo-app-light-working/`.** All `./deploy.sh ...` commands below assume you're inside that folder — `cd cfo-app-light-working` before running them.
+> **Bundle code lives at the repo root.** All `./deploy.sh ...` / `./teardown.sh ...` commands below assume you're in the repo root (where `databricks.yml` lives).
 
 ---
 
@@ -125,6 +125,8 @@ It maps your raw columns to the demo's load-bearing bronze schema (15 tables / 1
 
 It **auto-maps only what it's confident about** (high confidence, from the table's primary source). Everything uncertain — lower confidence, a column sourced from a different table, a derived value, or no match at all — is **flagged for your review** rather than silently wired up. A wrong silent mapping shows nonsense numbers in the app; a flagged one is recoverable.
 
+> **AI Cost & Governance tab — customer mapping coming soon (WIP).** The mapping flow above covers the ERP/HR/CRM sources (SAP, Workday, Salesforce, Concur). It does **not yet** map the data behind the AI Cost & Governance tab, which is modeled on Databricks system tables (`system.ai_gateway.*`, `system.billing.*`). Until that mapping ships, the AI cost tab runs on synthetic data. Repointing it at your real system tables is work-in-progress.
+
 ### Run it top-to-bottom
 
 1. **Set widgets.** `CFO_CUSTOMER_SOURCES` = your real `catalog.schema`. For data spread across multiple catalogs (e.g. Workday in one catalog, SAP in another), use a semicolon-separated list:
@@ -189,6 +191,55 @@ To pin a byte-stable snapshot instead (e.g., to rehearse a demo script against f
 | App code, prompts, instructions, dashboards | Same deploy command as Step 3, **without** `--refresh-data` and **without** `--skip-bronze-hydrate` |
 | Data layer (silver/gold + chip cache) | Same deploy command as Step 3, **with** `--refresh-data` and `--skip-bronze-hydrate` |
 | Repoint same `--target` to a different workspace | `rm -rf .databricks/bundle/<target>` first, then deploy (clears stale local terraform state) |
+
+---
+
+## Teardown
+
+`teardown.sh` is the inverse of `deploy.sh` — it removes everything the demo
+creates, with no orphans, and is safe to re-run. After teardown you can run
+`deploy.sh` again to rebuild the demo from zero.
+
+```bash
+# Full teardown (matches a default deploy)
+./teardown.sh \
+    --profile <your-profile> \
+    --catalog <your-catalog> \
+    --schema <your-schema> \
+    --warehouse-id <warehouse-id>
+```
+
+It runs three idempotent steps:
+
+1. **`databricks bundle destroy`** — removes the DAB-managed resources (the
+   Databricks App, the `cfo_data_pipeline` job, both Lakeview dashboards, and
+   the synced workspace files).
+2. **`scripts/delete_genie_space.py`** — deletes the Genie space, which the
+   pipeline creates at runtime and therefore has no DAB resource type (so
+   `bundle destroy` can't reach it). Looks it up by `--genie-space-title`, the
+   same way `deploy.sh` does.
+3. **`DROP SCHEMA … CASCADE`** — drops the Unity Catalog schema and every
+   table / view / metric view setup created in it.
+
+Every step is idempotent — a second run just reports "nothing to remove."
+
+Match the flags to how you deployed (`--target`, `--app-name`,
+`--genie-space-title`, `--workspace-root-path`) so teardown targets the same
+resources. Useful options:
+
+- `--keep-schema` — tear down the app/job/dashboards/Genie space but leave the
+  UC data in place (omit `--warehouse-id` in this case).
+- `--yes` — skip the interactive confirmation prompt (for scripted runs).
+- `--force-lock` — steal a stale bundle deploy lock.
+
+Run `./teardown.sh --help` for the full flag reference.
+
+### Rebuild cycle (setup → teardown → setup)
+
+Because setup is idempotent (`CREATE SCHEMA IF NOT EXISTS`, `CREATE OR REPLACE
+TABLE`, Genie space created-or-updated by title) and teardown removes every
+resource it created, a clean workspace can run `deploy.sh` → `teardown.sh` →
+`deploy.sh` and end in a working state with no manual steps.
 
 ---
 

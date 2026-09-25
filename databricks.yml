@@ -248,12 +248,13 @@ resources:
               CFO_CATALOG: ${var.catalog}
               CFO_SCHEMA_NAME: ${var.schema_name}
               CFO_WAREHOUSE_ID: ${var.warehouse_id}
-              # Dynamic task-value reference — resolves at task-start time, AFTER
-              # provision_genie_space has set tasks.provision_genie_space.values.space_id.
-              # This fixes the first-time-deploy bug where ${var.genie_space_id} was
-              # still empty when the job was submitted. See the 2026-05-16 incident in
-              # git history.
-              CFO_GENIE_SPACE_ID: "{{tasks.provision_genie_space.values.space_id}}"
+              # Prefer the explicit deploy var (we pass --genie-space-id). If it's empty
+              # (first-time deploy where the space is created in-run), the task value
+              # from provision_genie_space fills in; and generate_insights._resolve_genie_space_id
+              # has a title-prefix lookup as a final fallback. Order: var → task-value → title.
+              # (Was task-value-only, which resolved EMPTY here on 2026-07-29 → chips NULL.)
+              CFO_GENIE_SPACE_ID: "${var.genie_space_id}"
+              CFO_GENIE_SPACE_ID_TASKVAL: "{{tasks.provision_genie_space.values.space_id}}"
               # Belt-and-suspenders: if the task-value reference above ever fails to
               # resolve, _resolve_genie_space_id() in generate_insights.py falls back
               # to a runtime title lookup using this title.

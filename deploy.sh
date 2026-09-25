@@ -264,6 +264,47 @@ fi
 #    Genie ID; the branch below triggers the job to create one.
 echo "[3/6] Bundle deploy #1 (creates/refreshes resources)..."
 build_common_vars "$GENIE_SPACE_ID"
+
+# Adopt a pre-existing app instead of failing on "an app with the same name
+# already exists". A DAB decides create-vs-update from its terraform state: if
+# the app named $APP_NAME exists in the workspace but isn't in this target's
+# state (created via the UI/CLI, or state was cleared / this is a fresh clone),
+# `bundle deploy` tries to CREATE it and collides. `bundle deployment bind`
+# imports it into state once, after which deploy UPDATES it. For an app the
+# RESOURCE_ID is the app name. `cfo-demo-test` is the app's resource KEY in
+# databricks.yml (resources.apps.cfo-demo-test). Idempotent: skipped when the
+# app is already managed, or when it doesn't exist yet (normal first deploy).
+APP_EXISTS=$(databricks apps get "$APP_NAME" --profile "$PROFILE" -o json 2>/dev/null \
+  | python3 -c 'import json,sys
+try:
+    print((json.load(sys.stdin).get("name") or "").strip(), end="")
+except Exception:
+    pass')
+if [[ -n "$APP_EXISTS" ]]; then
+  # Is the app already in this target's bundle state? bundle summary reports a
+  # resource "id"/"url" only for resources present in state.
+  APP_IN_STATE=$(databricks bundle summary --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" -o json 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    apps=(json.load(sys.stdin).get("resources") or {}).get("apps") or {}
+except Exception:
+    apps={}
+app=apps.get("cfo-demo-test") or {}
+# A bound/deployed app carries an id or url; an unbound one does not.
+print("yes" if (app.get("id") or app.get("url")) else "", end="")')
+  if [[ -z "$APP_IN_STATE" ]]; then
+    echo "    App '$APP_NAME' exists in the workspace but isn't managed by this"
+    echo "    bundle target yet — binding it into bundle state (one-time)..."
+    databricks bundle deployment bind cfo-demo-test "$APP_NAME" \
+      --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" \
+      --auto-approve ${FORCE_LOCK:+--force-lock} || {
+        echo "    WARNING: bind failed — deploy may still error if the app name collides." >&2
+        echo "             Bind manually: databricks bundle deployment bind cfo-demo-test $APP_NAME --profile $PROFILE" >&2
+      }
+    echo ""
+  fi
+fi
+
 databricks bundle deploy --profile "$PROFILE" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${COMMON_VARS[@]}" ${FORCE_LOCK:+--force-lock}
 echo ""
 
