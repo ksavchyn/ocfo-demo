@@ -491,7 +491,13 @@ window.openAICostEmail = function (row) {
         audience = 'engagement lead';
         ctx = `${action}: ${row.client} — ${row.project}. Attributed AI spend ${fmtUSDLocal(row.ai_cost)}, contract type ${row.contract_type}, AI as ${fmtPctLocal(row.ai_pct_invoice)} of invoice.`;
     }
-    currentAction = { type: 'ai_nudge', action, audience, context: ctx };
+    // Target of the action, persisted to Lakebase (cfo_ops.ai_actions) when the nudge is sent.
+    const target = row.kind === 'budget'
+        ? { action_type: 'nudge_dept_head', target_type: 'cost_center', target_id: row.cost_center, client_name: null, amount_usd: row.ttm_cost }
+        : row.kind === 'provider'
+            ? { action_type: 'set_fallbacks', target_type: 'engagement', target_id: row.project, client_name: row.client, amount_usd: row.ai_cost }
+            : { action_type: action === 'Generate Usage Summary' ? 'usage_summary' : 'flag_margin_review', target_type: 'engagement', target_id: row.project, client_name: row.client, amount_usd: row.ai_cost };
+    currentAction = { type: 'ai_nudge', action, audience, context: ctx, target };
     document.getElementById('emailModalTitle').textContent = title;
     document.getElementById('emailModal').classList.add('active');
     document.getElementById('emailTo').value = to;
@@ -548,7 +554,16 @@ function startLoadingAnimation(){
 function stopLoadingAnimation(){ if(loadingInterval){clearInterval(loadingInterval);loadingInterval=null;} const el=document.getElementById('emailContent'); if(el)el.classList.remove('loading-indicator'); }
 function showToneSelector(){ const t=document.getElementById('toneSelector'); t.style.display=t.style.display==='none'?'flex':'none'; }
 async function regenerateEmailWithTone(tone){ const btn=document.getElementById('regenerateBtn'); const orig=btn.innerHTML; document.getElementById('toneSelector').style.display='none'; rewriteCount++; btn.innerHTML='<i class="fas fa-sync fa-spin"></i> Regenerating...'; btn.disabled=true; try{ await generateEmail('ai_nudge', true, tone);} finally { btn.innerHTML=orig; btn.disabled=false; } }
-async function sendEmail(){ showConfirmation('Nudge sent successfully!'); closeModal(); }
+async function sendEmail(){
+    // Record the governance action in Lakebase (OLTP write); the email itself is simulated in the demo.
+    try {
+        if (currentAction && currentAction.target) {
+            await fetch('/api/ai-actions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...currentAction.target, note: document.getElementById('emailSubject').value }) });
+        }
+    } catch (e) { console.warn('ai-actions log failed', e); }
+    showConfirmation('Nudge sent successfully!'); closeModal();
+}
 function closeModal(){ document.getElementById('emailModal').classList.remove('active'); currentAction=null; rewriteCount=0; }
 function showConfirmation(msg){ const t=document.getElementById('confirmationToast'); document.getElementById('toastMessage').textContent=msg; t.className='confirmation-toast show'; setTimeout(()=>{t.className='confirmation-toast';},3000); }
 window.addEventListener('click', (e)=>{ if(e.target===document.getElementById('emailModal')) closeModal(); });

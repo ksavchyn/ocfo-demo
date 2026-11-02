@@ -15,6 +15,7 @@ app_logger = logging.getLogger(__name__)
 
 # Import genie_agent in a background thread for both fast startup AND caching
 import threading
+import lakebase_store
 
 # Schema configuration — env-var driven for asset-bundle portability
 SCHEMA = os.environ.get("CFO_SCHEMA", "main.cfo_proserv")
@@ -1994,9 +1995,22 @@ def ai_cost_by_office():
 
 @app.route('/api/ai-cost/cost-centers')
 def ai_cost_cost_centers():
-    """Budget performance by cost center — the 'Enforce Internal Spend Controls' table."""
+    """Budget performance by cost center — the 'Enforce Internal Spend Controls' table.
+
+    Served from the Lakebase synced table when Lakebase is configured (low-latency
+    OLTP read); falls back to the SQL warehouse over the UC gold table otherwise.
+    """
     s = SCHEMA
-    rows = execute_sql_query(f"""
+    rows, source = None, "lakebase"
+    if lakebase_store.is_configured():
+        try:
+            rows = lakebase_store.read_cost_centers(limit=25)
+        except Exception as e:
+            app_logger.warning(f"Lakebase read failed, falling back to warehouse: {e}")
+            rows = None
+    if rows is None:
+        source = "warehouse"
+        rows = execute_sql_query(f"""
         SELECT cost_center, cost_center_department, policy_name,
                ROUND(ttm_ai_cost_usd,0), ROUND(annual_budget_usd,0),
                budget_utilization_pct, budget_status
@@ -2010,7 +2024,25 @@ def ai_cost_cost_centers():
          "ttm_cost": float(r[3] or 0), "budget": float(r[4] or 0),
          "utilization_pct": float(r[5] or 0), "status": r[6]}
         for r in rows
-    ])
+    ]), 200, {"X-Data-Source": source}
+
+
+@app.route('/api/ai-actions', methods=['GET', 'POST'])
+def ai_actions():
+    """Governance actions (nudges, margin-review flags, usage summaries) persisted in Lakebase."""
+    if not lakebase_store.is_configured():
+        return jsonify({"error": "Lakebase not configured"}), 503
+    if request.method == 'GET':
+        return jsonify(lakebase_store.recent_actions(limit=int(request.args.get('limit', 50))))
+    d = request.json or {}
+    allowed = {"nudge_dept_head", "flag_margin_review", "usage_summary", "set_fallbacks"}
+    if d.get("action_type") not in allowed or not d.get("target_id"):
+        return jsonify({"error": "action_type and target_id required"}), 400
+    actor = request.headers.get("X-Forwarded-Email") or request.headers.get("X-Forwarded-User")
+    action_id = lakebase_store.log_action(
+        d["action_type"], d.get("target_type", "engagement"), str(d["target_id"]),
+        client_name=d.get("client_name"), amount_usd=d.get("amount_usd"), actor=actor, note=d.get("note"))
+    return jsonify({"action_id": action_id, "status": "open"}), 201
 
 
 @app.route('/api/ai-cost/engagements')

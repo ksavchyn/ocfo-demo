@@ -141,6 +141,14 @@ variables:
       Quality matters more than speed here — Opus is recommended.
     default: "databricks-claude-opus-4-7"
 
+  lakebase_endpoint:
+    description: "Lakebase endpoint path for the app's operational serving layer (e.g. projects/cfo-ops/branches/production/endpoints/primary). Empty = app reads from the SQL warehouse."
+    default: ""
+
+  lakebase_host:
+    description: "Lakebase endpoint hostname (from `databricks postgres get-endpoint`)."
+    default: ""
+
   finance_dashboard_id:
     description: "Lakeview dashboard ID for Finance Dashboard. Resolved from bundle resource at deploy time."
     default: "${resources.dashboards.cfo_finance_dashboard.id}"
@@ -339,6 +347,10 @@ resources:
             value: ${var.claude_model_compose}
           - name: "CFO_CLAUDE_MODEL_AGENT"
             value: ${var.claude_model_agent}
+          - name: "CFO_LAKEBASE_ENDPOINT"
+            value: ${var.lakebase_endpoint}
+          - name: "CFO_LAKEBASE_HOST"
+            value: ${var.lakebase_host}
           - name: "CFO_DASHBOARD_FINANCE_URL"
             value: "${workspace.host}/embed/dashboardsv3/${var.finance_dashboard_id}"
           - name: "CFO_DASHBOARD_ADMIN_URL"
