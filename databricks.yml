@@ -158,12 +158,25 @@ variables:
 # customer can deploy this same bundle to dev + staging + prod workspaces
 # without lineage collisions.
 resources:
+  pipelines:
+    cfo_bronze_ingest:
+      name: "CFO Demo — Bronze Ingest (${var.app_name})"
+      catalog: ${var.catalog}
+      schema: ${var.schema_name}
+      serverless: true
+      channel: CURRENT
+      libraries:
+        - file:
+            path: ./pipelines/ingest_bronze.py
+      configuration:
+        cfo.landing_root: /Volumes/${var.catalog}/${var.schema_name}/raw_landing
   jobs:
     cfo_data_pipeline:
       name: "CFO Demo — Data Pipeline (${var.app_name})"
       description: |
         End-to-end pipeline:
-          1. hydrate_bronze              — 23 bronze tables, envelope-driven synthetic data
+          1. hydrate_bronze              — lands raw source extracts (28 tables) as Parquet in a UC Volume
+          1b. ingest_bronze              — Lakeflow Declarative Pipeline: Auto Loader -> bronze_* streaming tables
           2. build_silver_gold           — 9 silver + 12 gold tables
           3. envelope_safety_net         — ~30 assertions against plausibility_envelope.yml (gates downstream)
           4. provision_genie_space       — creates/refreshes Genie space + trusted queries
@@ -191,9 +204,17 @@ resources:
               CFO_SKIP_HYDRATE_BRONZE: ${var.skip_hydrate_bronze}
               CFO_AS_OF_MODE: ${var.as_of_mode}
               CFO_AS_OF_DATE: ${var.as_of_date}
-        - task_key: build_silver_gold
+        - task_key: ingest_bronze
           depends_on:
             - task_key: hydrate_bronze
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.cfo_bronze_ingest.id}
+            # Each run re-extracts the full synthetic dataset, so the bronze
+            # streaming tables are rebuilt from the landed files.
+            full_refresh: true
+        - task_key: build_silver_gold
+          depends_on:
+            - task_key: ingest_bronze
           notebook_task:
             notebook_path: ./data_pipeline/02_build_silver_gold.py
             base_parameters:

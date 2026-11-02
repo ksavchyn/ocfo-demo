@@ -149,6 +149,15 @@ def _env(*path, default=None):
     return node
 
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+
+# Raw landing zone for Lakeflow ingestion. This notebook plays the role of the
+# source systems (SAP, Salesforce, Workday, Concur, AI Gateway system tables):
+# it lands raw Parquet extracts in a UC Volume, and the Lakeflow Declarative
+# Pipeline (pipelines/ingest_bronze.py) ingests them with Auto Loader into the
+# governed bronze_* streaming tables that silver/gold build on.
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.raw_landing")
+LANDING_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/raw_landing"
+print(f"Raw landing zone: {LANDING_ROOT}")
 spark.sql(f"USE CATALOG {CATALOG}")
 spark.sql(f"USE SCHEMA {SCHEMA}")
 
@@ -698,17 +707,25 @@ def make_mandatory():
 
 
 def write_table(df, table_name, mode="overwrite"):
-    """Write DataFrame to Delta table (serverless compatible via temp view + CTAS)."""
-    view_name = f"_tmp_{table_name}"
-    df.createOrReplaceTempView(view_name)
+    """Land a source extract as raw Parquet in the UC Volume (one folder per source table).
+
+    The bronze Delta tables are NOT written here: the Lakeflow Declarative Pipeline
+    ingests these files with Auto Loader into streaming tables of the same name.
+    """
+    source = table_name[len("bronze_"):] if table_name.startswith("bronze_") else table_name
+    path = f"{LANDING_ROOT}/{source}"
     if mode == "overwrite":
-        spark.sql(f"DROP TABLE IF EXISTS {CATALOG}.{SCHEMA}.{table_name}")
-        spark.sql(f"CREATE TABLE {CATALOG}.{SCHEMA}.{table_name} AS SELECT * FROM {view_name}")
-    else:
-        spark.sql(f"INSERT INTO {CATALOG}.{SCHEMA}.{table_name} SELECT * FROM {view_name}")
-    count = spark.table(f"{CATALOG}.{SCHEMA}.{table_name}").count()
-    print(f"  {table_name}: {count:,} rows")
+        dbutils.fs.rm(path, True)  # noqa: F821  (full re-extract each run)
+    df.write.mode("append").parquet(path)
+    count = spark.read.parquet(path).count()
+    print(f"  landed {source}: {count:,} rows -> {path}")
     return count
+
+
+def read_landed(table_name):
+    """Read a landed extract back (used by the sanity checks below)."""
+    source = table_name[len("bronze_"):] if table_name.startswith("bronze_") else table_name
+    return spark.read.parquet(f"{LANDING_ROOT}/{source}")
 
 # COMMAND ----------
 
@@ -4025,7 +4042,7 @@ tables = [
 total_rows = 0
 for t in tables:
     try:
-        count = spark.table(f"{CATALOG}.{SCHEMA}.{t}").count()
+        count = read_landed(t).count()
         total_rows += count
         print(f"  {t:45s} {count:>12,} rows")
     except Exception as e:
@@ -4041,7 +4058,7 @@ print()
 
 # Revenue sanity check
 print("--- Revenue Sanity Check ---")
-tc_df = spark.table(f"{CATALOG}.{SCHEMA}.bronze_workday_timecards")
+tc_df = read_landed("bronze_workday_timecards")
 revenue_check = (
     tc_df.filter(F.col("time_type") == "Billable")
     .withColumn("revenue", F.col("hours") * F.col("billing_rate"))
@@ -4057,7 +4074,7 @@ revenue_check = (
 revenue_check.show(50, truncate=False)
 
 print("--- Engagement Budget Sanity Check ---")
-eng_df = spark.table(f"{CATALOG}.{SCHEMA}.bronze_sfdc_engagements")
+eng_df = read_landed("bronze_sfdc_engagements")
 eng_df.select(
     F.min("budget_amount").alias("min_budget"),
     F.avg("budget_amount").alias("avg_budget"),
@@ -4070,7 +4087,7 @@ eng_df.select(
 print("--- Partner FK Validation ---")
 partner_check = (
     eng_df.join(
-        spark.table(f"{CATALOG}.{SCHEMA}.bronze_workday_employees")
+        read_landed("bronze_workday_employees")
         .filter(F.col("job_level").isin("Partner", "Senior Partner"))
         .select("employee_id"),
         eng_df.lead_partner == F.col("employee_id"),
