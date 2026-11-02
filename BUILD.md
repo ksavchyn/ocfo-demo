@@ -47,4 +47,4 @@ What stayed human: the scope (GenAI inference cost, not ML training), the person
 
 ## Execution evidence
 
-See [`evidence/`](evidence/README.md): text output from a full run on a personal Databricks workspace.
+Start with [`evidence/EXECUTION_EVIDENCE.ipynb`](evidence/EXECUTION_EVIDENCE.ipynb), an executed notebook with saved outputs from a full run on a personal Databricks workspace. The plain-text captures and logs are indexed in [`evidence/README.md`](evidence/README.md).
