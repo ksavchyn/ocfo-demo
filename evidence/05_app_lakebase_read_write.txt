@@ -1,0 +1,101 @@
+App code (app.py + lakebase_store.py) running locally against Lakebase project cfo-ops (endpoint projects/cfo-ops/branches/production/endpoints/primary)
+and the kat-personal SQL warehouse. Captured 2026-11-02 18:43 UTC. Same code as the deployed app; Lakebase env vars set (CFO_LAKEBASE_ENDPOINT/HOST).
+
+== GET /api/ai-cost/cost-centers   (Spend Controls table, served from the Lakebase synced table)
+HTTP/1.1 200 OK
+X-Data-Source: lakebase
+(25 rows; first 5)
+[
+ {
+  "budget": 100926.0,
+  "cost_center": "CC-0022",
+  "department": "HR",
+  "policy": "CC-0022 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 769874.0,
+  "utilization_pct": 762.8
+ },
+ {
+  "budget": 124097.0,
+  "cost_center": "CC-0036",
+  "department": "Operations",
+  "policy": "CC-0036 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 632301.0,
+  "utilization_pct": 509.5
+ },
+ {
+  "budget": 113792.0,
+  "cost_center": "CC-0039",
+  "department": "Executive",
+  "policy": "CC-0039 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 521122.0,
+  "utilization_pct": 458.0
+ },
+ {
+  "budget": 194986.0,
+  "cost_center": "CC-0004",
+  "department": "Finance",
+  "policy": "CC-0004 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 831225.0,
+  "utilization_pct": 426.3
+ },
+ {
+  "budget": 163605.0,
+  "cost_center": "CC-0009",
+  "department": "Executive",
+  "policy": "CC-0009 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 658588.0,
+  "utilization_pct": 402.5
+ }
+]
+
+== POST /api/ai-actions   (user clicks 'Nudge Dept Head' on CC-0036 and sends; OLTP write to Lakebase cfo_ops.ai_actions)
+HTTP/1.1 201 CREATED
+{"action_id":"70f0ddbc-d425-4187-8f1b-0717d162e968","status":"open"}
+
+{"action_id":"905f590e-413b-49b9-9247-8d43503cf365","status":"open"}
+
+
+== GET /api/ai-actions?limit=5   (read back from Lakebase)
+[
+ {
+  "action_id": "905f590e-413b-49b9-9247-8d43503cf365",
+  "action_type": "flag_margin_review",
+  "actor": null,
+  "amount_usd": "3300000.00",
+  "client_name": "Google",
+  "created_at": "Mon, 02 Nov 2026 18:43:15 GMT",
+  "note": "Flag for Margin Review: fixed-price AI spend absorbed",
+  "status": "open",
+  "target_id": "Google Sustainability Advisory",
+  "target_type": "engagement"
+ },
+ {
+  "action_id": "70f0ddbc-d425-4187-8f1b-0717d162e968",
+  "action_type": "nudge_dept_head",
+  "actor": null,
+  "amount_usd": "632301.00",
+  "client_name": null,
+  "created_at": "Mon, 02 Nov 2026 18:43:13 GMT",
+  "note": "Nudge Department Head: AI budget at 510% of annual policy",
+  "status": "open",
+  "target_id": "CC-0036",
+  "target_type": "cost_center"
+ },
+ {
+  "action_id": "f85a7e57-9b99-47c5-a95d-e034d59bb74b",
+  "action_type": "nudge_dept_head",
+  "actor": "smoke-test",
+  "amount_usd": "769874.00",
+  "client_name": null,
+  "created_at": "Mon, 02 Nov 2026 18:26:35 GMT",
+  "note": "AI budget at 763% of annual policy",
+  "status": "open",
+  "target_id": "CC-0022",
+  "target_type": "cost_center"
+ }
+]

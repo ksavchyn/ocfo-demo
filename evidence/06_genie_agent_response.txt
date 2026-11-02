@@ -1,0 +1,39 @@
+Genie agent via the deployed app: POST https://cfo-febar-7474659787238214.aws.databricksapps.com/api/chat
+Flow: Claude (system.ai.claude-opus-4-7 via Unity AI Gateway) plans the question, calls the Genie space 'CFO Demo - FE Bar (kat-personal)'
+over the governed gold tables + metric views in kat_personal_catalog.cfo_febar, and composes the answer from the returned rows.
+Response timestamp: 2026-11-02T18:44:30.564610  status: success  (round trip 43 s)
+
+QUESTION: Which cost centers are furthest over their AI budget, and why?
+
+ANSWER:
+## AI Budget Overruns — Top Offenders
+
+**23 cost centers** are currently over their AI budget. Here are the ten furthest over by absolute dollar variance:
+
+| Rank | Cost Center | Dept | Actual AI Spend | AI Budget | Over Budget $ | Over Budget % |
+|---|---|---|---:|---:|---:|---:|
+| 1 | CC-0022 | HR | $769,874 | $100,926 | **$668,948** | **663%** |
+| 2 | CC-0004 | Finance | $831,225 | $194,986 | $636,239 | 326% |
+| 3 | CC-0036 | Operations | $632,301 | $124,097 | $508,204 | 410% |
+| 4 | CC-0009 | Executive | $658,588 | $163,605 | $494,983 | 303% |
+| 5 | CC-0021 | IT | $584,536 | $172,695 | $411,841 | 238% |
+| 6 | CC-0039 | Executive | $521,122 | $113,792 | $407,330 | 358% |
+| 7 | CC-0030 | Facilities | $518,660 | $202,987 | $315,673 | 156% |
+| 8 | CC-0024 | Finance | $595,976 | $355,558 | $240,418 | 68% |
+| 9 | CC-0027 | R&D | $317,207 | $88,659 | $228,549 | 258% |
+| 10 | CC-0038 | Sales | $318,174 | $91,024 | $227,150 | 250% |
+
+### Why they're over — the drivers
+
+The pattern is remarkably consistent across all 23 over-budget cost centers:
+
+- **Billable work is the #1 driver in every single case.** AI tooling is being heavily consumed in client-facing delivery (e.g., CC-0038 Sales shows $1.36M in Billable AI spend; CC-0028 shows $976K). This suggests AI costs are scaling with revenue-generating activity faster than budgets anticipated.
+- **Secondary drivers vary by department function:**
+  - **Finance, HR, Executive** → Corporate overhead AI usage (~$335K–$385K per CC)
+  - **IT, R&D** → Technology/infrastructure AI (~$325K–$400K per CC)
+  - **Marketing, Sales** → Marketing-category AI (~$348K–$387K per CC)
+  - **Operations, Facilities** → "Other" classification (~$320K–$351K per CC)
+
+### Bottom line
+
+The overruns aren't a rogue-spend problem — they're a **budget-sizing problem**. The worst offenders (CC-0022, CC-0036, CC-0039, CC-0009) were given AI budgets of roughly $100K–$165K but are consuming $520K–$770K, driven predominantly by billable client work. The budgets appear to have been set before AI usage scaled into delivery workflows. A re-baselining exercise tied to billable-hours forecasts is warranted, particularly for the four cost centers running 300%+ over.
