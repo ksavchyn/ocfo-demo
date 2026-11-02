@@ -1,0 +1,13 @@
+Job: CFO Demo — Data Pipeline (cfo-febar)  (job_id 1041293095496499, run_id 595756286301571)
+Workspace: https://fevm-kat-personal.cloud.databricks.com  |  Result: SUCCESS  |  Start 2026-11-02 17:32:43 UTC  End 2026-11-02 18:20:02 UTC
+
+task                        type            result        duration  task_run_id
+hydrate_bronze              notebook_task   SUCCESS           330s  527181467869475
+ingest_bronze               pipeline_task   SUCCESS           123s  580320891284241
+build_silver_gold           notebook_task   SUCCESS           521s  579229385396118
+envelope_safety_net         notebook_task   SUCCESS            33s  110303380846335
+create_metric_views         notebook_task   SUCCESS            12s  697981726985767
+provision_genie_space       notebook_task   SUCCESS           165s  1014115012174789
+generate_insights           notebook_task   SUCCESS          1622s  333369251964699
+validate_consistency        notebook_task   SUCCESS            19s  286449791955508
+refresh_dashboards          notebook_task   SUCCESS             8s  226348499614218

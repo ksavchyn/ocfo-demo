@@ -3,7 +3,7 @@
 Two jobs, both on the AI Cost & Governance tab:
 
 1. READ  - the "Enforce Internal Spend Controls" table is served from a Lakebase
-           synced table (cfo_serving.gold_ai_cost_by_cost_center), kept in sync
+           synced table (<uc_schema>.ai_budget_serving in Postgres), kept in sync
            from the Unity Catalog gold table. Low-latency point reads for the app
            instead of a SQL warehouse scan.
 2. WRITE - every governance action a user takes (Nudge Dept Head, Flag for Margin
@@ -26,7 +26,8 @@ _lock = threading.Lock()
 _token = {"value": None, "issued": 0.0}
 _TOKEN_TTL_S = 40 * 60  # refresh well before the 1-hour expiry
 
-SERVING_SCHEMA = os.environ.get("CFO_LAKEBASE_SERVING_SCHEMA", "cfo_serving")
+# Postgres location of the synced table = <uc_schema>.<uc_table> of the synced table's UC name.
+SERVING_TABLE = os.environ.get("CFO_LAKEBASE_SERVING_TABLE", "cfo_febar.ai_budget_serving")
 OPS_SCHEMA = os.environ.get("CFO_LAKEBASE_OPS_SCHEMA", "cfo_ops")
 
 
@@ -96,7 +97,7 @@ def read_cost_centers(limit=25):
             SELECT cost_center, cost_center_department, policy_name,
                    ROUND(ttm_ai_cost_usd::numeric, 0), ROUND(annual_budget_usd::numeric, 0),
                    budget_utilization_pct, budget_status
-            FROM {SERVING_SCHEMA}.gold_ai_cost_by_cost_center
+            FROM {SERVING_TABLE}
             WHERE annual_budget_usd > 0
             ORDER BY budget_utilization_pct DESC NULLS LAST
             LIMIT %s""", (limit,))

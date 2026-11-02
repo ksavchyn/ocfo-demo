@@ -116,12 +116,12 @@ variables:
     default: "CFO Demo"
 
   claude_endpoint_url:
-    description: "URL to Claude /chat/completions endpoint. Default = workspace's auto-provisioned AI Gateway path. Every Databricks workspace ships with this gateway plus the databricks-claude-opus-4-7 model already serving behind it. Zero customer setup."
+    description: "URL to Claude /chat/completions endpoint. Default = workspace's auto-provisioned AI Gateway path. Every Databricks workspace ships with this gateway plus Claude served behind it as Unity Catalog model services (system.ai.claude-*). Zero customer setup."
     default: "${workspace.host}/ai-gateway/mlflow/v1"
 
   claude_model:
     description: "[LEGACY — kept as default for both compose + agent if you don't override below] Model name served at claude_endpoint_url. Customers can leave this and let claude_model_compose / claude_model_agent be the authoritative settings."
-    default: "databricks-claude-opus-4-7"
+    default: "system.ai.claude-opus-4-7"
 
   claude_model_compose:
     description: |
@@ -131,7 +131,7 @@ variables:
       answer). Output is grounded in given inputs — no judgment, no
       tool-calling. Haiku is plenty smart for this and ~30% faster + much
       cheaper than Opus.
-    default: "databricks-claude-haiku-4-5"
+    default: "system.ai.claude-haiku-4-5"
 
   claude_model_agent:
     description: |
@@ -139,7 +139,7 @@ variables:
       where Claude has to plan Genie tool calls, interpret Genie responses
       (which can be messy), and refuse fabrication when data is incomplete.
       Quality matters more than speed here — Opus is recommended.
-    default: "databricks-claude-opus-4-7"
+    default: "system.ai.claude-opus-4-7"
 
   lakebase_endpoint:
     description: "Lakebase endpoint path for the app's operational serving layer (e.g. projects/cfo-ops/branches/production/endpoints/primary). Empty = app reads from the SQL warehouse."

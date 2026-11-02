@@ -14,7 +14,7 @@ print("Lakebase configured:", lb.is_configured())
 t0 = time.time(); lb.ensure_ops_schema(); print(f"ensure_ops_schema: ok ({time.time()-t0:.2f}s)")
 
 t0 = time.time(); rows = lb.read_cost_centers(limit=5)
-print(f"\nREAD  cfo_serving.gold_ai_cost_by_cost_center (synced from UC) — top 5 by utilization ({(time.time()-t0)*1000:.0f} ms)")
+print(f"\nREAD  {lb.SERVING_TABLE} (Lakebase synced table from UC gold_ai_cost_by_cost_center) — top 5 by utilization ({(time.time()-t0)*1000:.0f} ms)")
 print(f"{'cost_center':<12}{'department':<12}{'ttm_ai_cost':>14}{'annual_budget':>15}{'util_%':>9}  status")
 for r in rows:
     print(f"{r[0]:<12}{str(r[1]):<12}{float(r[3]):>14,.0f}{float(r[4]):>15,.0f}{float(r[5]):>9.1f}  {r[6]}")

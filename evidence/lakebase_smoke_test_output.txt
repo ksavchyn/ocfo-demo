@@ -1,0 +1,15 @@
+Lakebase configured: True
+ensure_ops_schema: ok (5.45s)
+
+READ  cfo_febar.ai_budget_serving (Lakebase synced table from UC gold_ai_cost_by_cost_center) — top 5 by utilization (2105 ms)
+cost_center department     ttm_ai_cost  annual_budget   util_%  status
+CC-0022     HR                 769,874        100,926    762.8  OVER_BUDGET
+CC-0036     Operations         632,301        124,097    509.5  OVER_BUDGET
+CC-0039     Executive          521,122        113,792    458.0  OVER_BUDGET
+CC-0004     Finance            831,225        194,986    426.3  OVER_BUDGET
+CC-0009     Executive          658,588        163,605    402.5  OVER_BUDGET
+
+WRITE cfo_ops.ai_actions — inserted action f85a7e57-9b99-47c5-a95d-e034d59bb74b (2152 ms)
+
+READ  cfo_ops.ai_actions — most recent
+{"action_id": "f85a7e57-9b99-47c5-a95d-e034d59bb74b", "created_at": "2026-11-02 18:26:35.279710+00:00", "action_type": "nudge_dept_head", "target_type": "cost_center", "target_id": "CC-0022", "client_name": null, "amount_usd": "769874.00", "status": "open", "actor": "smoke-test", "note": "AI budget at 763% of annual policy"}

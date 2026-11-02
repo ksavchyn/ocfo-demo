@@ -1,0 +1,86 @@
+Unity Catalog schema kat_personal_catalog.cfo_febar: medallion built on the Lakeflow bronze streaming tables
+
+== Row counts across the medallion
+-- SELECT 'bronze_workday_timecards' AS table_name, COUNT(*) AS row_count FROM kat_personal_catalog.cfo_febar.bronze_workday_timecards UNION ALL SELECT 'bronze_ai_...
+  table_name                       row_count
+  bronze_workday_timecards         3219302  
+  bronze_ai_gateway_usage          518400   
+  silver_dim_clients               300      
+  silver_dim_projects              8000     
+  silver_fact_timecards            3219302  
+  silver_fact_accounts_receivable  73133    
+  silver_fact_expenses             270000   
+  gold_project_profitability       8000     
+  gold_regional_pnl                195688   
+  gold_ai_cost_observability       4825     
+  gold_ai_cost_monthly             36       
+  gold_ai_cost_by_engagement       60       
+  gold_ai_cost_by_cost_center      149      
+  gold_persona_insights            83       
+  (14 rows)
+
+== Table types (bronze = Lakeflow streaming tables, metric views for Genie)
+-- SELECT table_name, table_type FROM kat_personal_catalog.information_schema.tables WHERE table_schema = 'cfo_febar' AND (table_name LIKE 'bronze_ai%' OR table_na...
+  table_name                              table_type     
+  ai_budget_serving                       FOREIGN        
+  ai_cost_mv                              METRIC_VIEW    
+  bronze_ai_budget_policy                 STREAMING_TABLE
+  bronze_ai_gateway_external_model_spend  STREAMING_TABLE
+  bronze_ai_gateway_usage                 STREAMING_TABLE
+  bronze_ai_list_prices                   STREAMING_TABLE
+  firm_kpis_mv                            METRIC_VIEW    
+  (7 rows)
+
+== Plausibility safety net (04_envelope_safety_net): failures recorded
+-- SELECT COUNT(*) AS failed_assertions FROM kat_personal_catalog.cfo_febar.envelope_safety_net_failures
+  failed_assertions
+  13               
+  (1 rows)
+
+== Plausibility safety net: failed assertions (job runs non-strict, so they are logged, not blocking)
+-- SELECT * FROM kat_personal_catalog.cfo_febar.envelope_safety_net_failures LIMIT 20
+  actual              check                                                                            expected_hi  expected_lo  unit  
+  28.381210588589852  Annual revenue (trailing 12 months)                                              22           16           B     
+  4302                Strict partners (Partner + Senior Partner)                                       2600         2300               
+  21301               Total active employees                                                           45000        25000              
+  4.582155845660011   Total open AR balance                                                            3            1.5          B     
+  21.791077706484614  Top-10 client AR concentration                                                   45           25           %     
+  2.673995158109934   Top-1 client AR concentration                                                    8            4            %     
+  2.0010021248059213  Top-1 vendor concentration                                                       10           3            %     
+  99.70727260890752   Billable expense labor share (timecard labor / (labor + T&E billable))           95           70           %     
+  151.89416327959256  Avg monthly billable hours per partner                                           110          60           hrs/mo
+  None                Max office-month expense variance |actual - budget| / budget                     30           None         %     
+  4                   AR sparse-cell count (location × month with < min rows) — must be 0              0            0                  
+  2.7946827688295115  Max-office-to-median-office expense ratio                                        2.5          None         x     
+  9.105296249967942   Cross-table Corporate-expense scale parity (regional_pnl vs department_summary)  5            None         %     
+  (13 rows)
+
+== Consistency-validation harness (03_validate_consistency): violations by type
+-- SELECT * FROM kat_personal_catalog.cfo_febar.consistency_violations LIMIT 20
+  persona  slot_type  slot_id  question  type       message                                                                               snippet                                                                    
+  finance  insight    1                  kpi_drift  Prose says firmwide DSO = 34.3 days; canonical dashboard DSO = 22.9 days (>2% drift)  Days Sales Outstanding 34.3 days Open AR DSO remains stable a              
+  finance  insight    3                  kpi_drift  Prose says firmwide DSO = 34.3 days; canonical dashboard DSO = 22.9 days (>2% drift)  —13.7 days above the firmwide DSO of 34.3 days. This single-client exposure
+  (2 rows)
+
+== Generated persona insights (Claude via AI Gateway), count by persona and slot
+-- SELECT persona, slot_type, COUNT(*) AS n FROM kat_personal_catalog.cfo_febar.gold_persona_insights GROUP BY ALL ORDER BY persona, slot_type
+  persona  slot_type            n 
+  _shared  bottom_chip_admin    3 
+  _shared  bottom_chip_ai       6 
+  _shared  bottom_chip_finance  3 
+  _shared  followup_l1_admin    6 
+  _shared  followup_l1_ai       11
+  _shared  followup_l1_finance  6 
+  admin    action_area          3 
+  admin    bottom_chip          3 
+  admin    followup_l1          6 
+  admin    insight              4 
+  finance  action_area          3 
+  finance  bottom_chip          3 
+  finance  followup_l1          6 
+  finance  insight              4 
+  hr       action_area          3 
+  hr       bottom_chip          3 
+  hr       followup_l1          6 
+  hr       insight              4 
+  (18 rows)

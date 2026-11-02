@@ -1,0 +1,355 @@
+Deployed Databricks App 'cfo-febar' (https://cfo-febar-7474659787238214.aws.databricksapps.com), workspace fevm-kat-personal. Responses captured 2026-11-02 18:35 UTC with an OAuth user token.
+
+== GET /health
+HTTP/2 200 
+{
+ "app": "cfo-demo",
+ "status": "healthy",
+ "template_dir": "/app/python/source_code/templates",
+ "templates_exist": true,
+ "version": "complete"
+}
+
+== GET /api/ai-cost/kpis
+HTTP/2 200 
+{
+ "budgets_at_risk": 24,
+ "frontier_pct": 26.0,
+ "governance_coverage_pct": 89.2,
+ "latest_month_spend": 3459591.87,
+ "latest_pct_revenue": 0.75,
+ "oss_pct": 74.0,
+ "revenue_by_dim": [
+  {
+   "industry": "Industrials & Electronics",
+   "location": "Atlanta",
+   "opex": 1479835.0,
+   "practice": "Audit",
+   "region": "Americas",
+   "revenue": 1868219.0
+  },
+  {
+   "industry": "Technology Media & Telecom",
+   "location": "Chicago",
+   "opex": 22310564.0,
+   "practice": "Technology",
+   "region": "Americas",
+   "revenue": 30281002.0
+  },
+  {
+   "industry": "Public & Social Sector",
+   "location": "New York",
+   "opex": 13834473.0,
+   "practice": "Accounting",
+   "region": "Americas",
+   "revenue": 18539867.0
+  },
+  {
+   "industry": "Consumer & Retail",
+   "location": "San Francisco",
+   "opex": 9739830.0,
+   "practice": "Accounting",
+   "region": "Americas",
+   "revenue": 11641686.0
+  },
+  {
+   "industry": "Healthcare & Life Sciences",
+   "location": "Toronto",
+   "opex": 4706550.0,
+   "practice": "Strategy & Consulting",
+   "region": "Americas",
+   "revenue": 6430979.0
+  },
+  {
+   "industry": "Healthcare & Life Sciences",
+   "location": "Seoul",
+   "opex": 1576170.0,
+   "practice": "Accounting",
+   "region": "Asia Pacific",
+   "revenue": 2248569.0
+  },
+  {
+   "industry": "Technology Media & Telecom",
+   "location": "Seoul",
+   "opex": 5193366.0,
+   "practice": "Managed Services: Tech",
+   "region": "Asia Pacific",
+   "revenue": 8056504.0
+  },
+  {
+   "industry": "Public & Social Sector",
+   "location": "Shanghai",
+   "opex": 12096756.0,
+   "practice": "Accounting",
+   "region": "Asia Pacific",
+   "revenue": 16439071.0
+  },
+  {
+   "industry": "Public & Social Sector",
+   "location": "Singapore",
+   "opex": 1065592.0,
+   "practice": "Audit",
+   "region": "Asia Pacific",
+   "revenue": 1458515.0
+  },
+  {
+   "industry": "Private Equity",
+   "location": "Singapore",
+   "opex": 8489011.0,
+   "practice": "Strategy & Consulting",
+   "region": "Asia Pacific",
+   "revenue": 13009992.0
+  },
+  {
+   "industry": "Financial Services",
+   "location": "Singapore",
+   "opex": 11628908.0,
+   "practice": "Technology",
+   "region": "Asia Pacific",
+   "revenue": 17069977.0
+  },
+  {
+   "industry": "Public & Social Sector",
+   "location": "Sydney",
+   "opex": 6993054.0,
+   "practice": "Operations",
+   "region": "Asia Pacific",
+   "revenue": 8751616.0
+  },
+  {
+   "industry": "Energy & Materials",
+   "location": "Tokyo",
+   "opex": 1122382.0,
+   "practice": "Operations",
+   "region": "Asia Pacific",
+   "revenue": 1487484.0
+  },
+  {
+   "industry": "Healthcare & Life Sciences",
+   "location": "Amsterdam",
+   "opex": 3066802.0,
+   "practice": "Managed Services: Tech",
+   "region": "EMEA",
+   "revenue": 4428123.0
+  },
+  {
+   "industry": "Public & Social Sector",
+   "location": "Dubai",
+   "opex": 3935265.0,
+   "practice": "Strategy & Consulting",
+   "region": "EMEA",
+   "revenue": 5318327.0
+  },
+  {
+   "industry": "Industrials & Electronics",
+   "location": "Frankfurt",
+   "opex": 8352468.0,
+   "practice": "Accounting",
+   "region": "EMEA",
+   "revenue": 10965616.0
+  },
+  {
+   "industry": "Energy & Materials",
+   "location": "Frankfurt",
+   "opex": 24722056.0,
+   "practice": "Audit",
+   "region": "EMEA",
+   "revenue": 32633163.0
+  },
+  {
+   "industry": "Private Equity",
+   "location": "Frankfurt",
+   "opex": 2491605.0,
+   "practice": "Managed Services: Tech",
+   "region": "EMEA",
+   "revenue": 3537719.0
+  },
+  {
+   "industry": "Industrials & Electronics",
+   "location"
+...(truncated)
+
+== GET /api/ai-cost/cost-centers
+HTTP/2 200 
+x-data-source: warehouse
+(25 rows; first 5 shown)
+[
+ {
+  "budget": 100926.0,
+  "cost_center": "CC-0022",
+  "department": "HR",
+  "policy": "CC-0022 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 769874.0,
+  "utilization_pct": 762.8
+ },
+ {
+  "budget": 124097.0,
+  "cost_center": "CC-0036",
+  "department": "Operations",
+  "policy": "CC-0036 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 632301.0,
+  "utilization_pct": 509.5
+ },
+ {
+  "budget": 113792.0,
+  "cost_center": "CC-0039",
+  "department": "Executive",
+  "policy": "CC-0039 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 521122.0,
+  "utilization_pct": 458.0
+ },
+ {
+  "budget": 194986.0,
+  "cost_center": "CC-0004",
+  "department": "Finance",
+  "policy": "CC-0004 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 831225.0,
+  "utilization_pct": 426.3
+ },
+ {
+  "budget": 163605.0,
+  "cost_center": "CC-0009",
+  "department": "Executive",
+  "policy": "CC-0009 AI Budget Policy",
+  "status": "OVER_BUDGET",
+  "ttm_cost": 658588.0,
+  "utilization_pct": 402.5
+ }
+]
+
+== GET /api/ai-cost/engagements
+HTTP/2 200 
+(60 rows; first 5 shown)
+[
+ {
+  "action": "Flag for Margin Review",
+  "ai_cost": 5546679.0,
+  "ai_pct_invoice": 131.05,
+  "ai_per_hour": 1705.76,
+  "client": "Walmart",
+  "concentration_flag": true,
+  "contract_type": "Fixed Price",
+  "dominant_provider": "OpenAI",
+  "endpoints": "agent-endpoint-02, external-proxy-01",
+  "industry": "Consumer & Retail",
+  "location": "Zurich",
+  "margin_pct": 45.3,
+  "pct_one_provider": 91.3,
+  "practice": "Technology",
+  "project": "Walmart \u2013 Strategic Roadmap FY2026",
+  "recoverability": "REPRICE_AT_RENEWAL",
+  "region": "EMEA",
+  "revenue": 4232383.0,
+  "tcv": 26794917.0
+ },
+ {
+  "action": "Review",
+  "ai_cost": 3901867.0,
+  "ai_pct_invoice": 146.27,
+  "ai_per_hour": 1662.49,
+  "client": "Bain Capital",
+  "concentration_flag": true,
+  "contract_type": "Retainer",
+  "dominant_provider": "Meta",
+  "endpoints": "agent-endpoint-07, external-proxy-03",
+  "industry": "Private Equity",
+  "location": "Houston",
+  "margin_pct": 45.33,
+  "pct_one_provider": 87.0,
+  "practice": "Technology",
+  "project": "Bain Capital \u2013 Buy-Side Due Diligence FY2026",
+  "recoverability": "REVIEW",
+  "region": "Americas",
+  "revenue": 2667642.0,
+  "tcv": 14119907.0
+ },
+ {
+  "action": "Generate Usage Summary",
+  "ai_cost": 2411610.0,
+  "ai_pct_invoice": 25.91,
+  "ai_per_hour": 348.74,
+  "client": "Bain Capital",
+  "concentration_flag": true,
+  "contract_type": "Time & Materials",
+  "dominant_provider": "Anthropic",
+  "endpoints": "external-proxy-05, agent-endpoint-01",
+  "industry": "Private Equity",
+  "location": "Houston",
+  "margin_pct": 53.67,
+  "pct_one_provider": 90.8,
+  "practice": "Managed Services: Tech",
+  "project": "Bain Capital Enterprise Strategy Refresh",
+  "recoverability": "RECOVERABLE",
+  "region": "Americas",
+  "revenue": 9306769.0,
+  "tcv": 49642763.0
+ },
+ {
+  "action": "Flag for Margin Review",
+  "ai_cost": 2290217.0,
+  "ai_pct_invoice": 45.92,
+  "ai_per_hour": 562.65,
+  "client": "Carlyle",
+  "concentration_flag": true,
+  "contract_type": "Fixed Price",
+  "dominant_provider": "Anthropic",
+  "endpoints": "external-proxy-04, agent-endpoint-07",
+  "industry": "Private Equity",
+  "location": "Zurich",
+  "margin_pct": 45.01,
+  "pct_one_provider": 90.3,
+  "practice": "Strategy & Consulting",
+  "project": "Carlyle Global Procurement Standup",
+  "recoverability": "REPRICE_AT_RENEWAL",
+  "region": "EMEA",
+  "revenue": 4987886.0,
+  "tcv": 23519647.0
+ },
+ {
+  "action": "Flag for Margin Review",
+  "ai_cost": 2098828.0,
+  "ai_pct_invoice": 33.22,
+  "ai_per_hour": 322.37,
+  "client": "Apple",
+  "concentration_flag": true,
+  "contract_type": "Fixed Price",
+  "dominant_provider": "Google",
+  "endpoints": "external-proxy-05, agent-endpoint-08",
+  "industry": "Technology Media & Telecom",
+  "location": "Sao Paulo",
+  "margin_pct": 24.98,
+  "pct_one_provider": 86.9,
+  "practice": "Technology",
+  "project": "Apple \u2013 Enterprise Operating Model Program",
+  "recoverability": "REPRICE_AT_RENEWAL",
+  "region": "Americas",
+  "revenue": 6317215.0,
+  "tcv": 49935029.0
+ }
+]
+
+== GET /api/get-insights?persona=finance
+HTTP/2 200 
+{
+ "actions": [],
+ "filters": {
+  "customer": null,
+  "industry": null,
+  "location": null,
+  "practice_area": null,
+  "region": null
+ },
+ "insights": [
+  "<span class=\"status-green\" data-status=\"green\"><strong>Days Sales Outstanding:</strong> <strong>34.3 days</strong> <span class='positive-change'>(0.2 days below prior baseline of open AR)</span> . Open AR DSO remains stable at 34.3 days, marginally below the prior baseline of 34.5 days. Roche and Goldman Sachs, representing $226.24M of the top-5 client portfolio, carry elevated aging at 48.0 and 45.0 days respectively, offset by faster collections from Apple, Aetna, and State Street. <span class='positive-change'>\u2193 0.2 days improvement</span></span>",
+  "<span class=\"status-yellow\" data-status=\"yellow\"><strong>Days Payable Outstanding:</strong> <strong>37.8 days</strong> <span class='warning-change'>(4.3 days above prior baseline of open AP)</span> . Open AP DPO extended to 37.8 days from a prior baseline of 33.5 days, a 4.3-day deterioration driven primarily by Velora Cloud ($90.46M at 61.0 days average) and Northwind Cloud ($74.06M at 51.0 days average), which together account for $164.52M of extended aging. <span class='negative-change'>\u2191 4.3 days deterioration</span></span>",
+  "<span class=\"status-red\" data-status=\"red\"><strong>Top Unpaid Client:</strong> <strong>$122.53M</strong> <span class='negative-change'>(108 invoices at 48.0 days average age)</span> . Roche represents the largest open AR concentration at $122.53M across 108 invoices, aging 48.0 days on average\u201413.7 days above the firmwide DSO of 34.3 days. This single-client exposure warrants immediate collection escalation and payment-terms review. <span class='negative-change'>\u2191 13.7 days above firmwide DSO</span></span>",
+  "<span class=\"status-red\" data-status=\"red\"><strong>Top Unpaid Vendor:</strong> <strong>$90.46M</strong> <span class='negative-change'>(4 invoices at 61.0 days average age)</span> . Velora Cloud represents the largest open AP balance at $90.46M across only 4 invoices, aging 61.0 days on average\u201423.2 days above the firmwide DPO of 37.8 days. This concentration and extended aging signal potential payment delay or disputed invoice status requiring immediate vendor contact. <span class='negative-change'>\u2191 23.2 days above firmwide DPO</span></span>"
+ ],
+ "persona": "finance",
+ "status": "success"
+}
+

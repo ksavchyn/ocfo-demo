@@ -1,0 +1,58 @@
+== 1. Lakebase project
+projects/cfo-ops 17
+projects/cfo-ops/branches/production/endpoints/primary ep-weathered-fog-d1n8u1zi.database.us-west-2.cloud.databricks.com ACTIVE
+== 2. Register the Lakebase database as a UC catalog
+Error: Principal 'Kateryna Savchyn' does not have CREATE CATALOG on Metastore 'metastore_aws_us_west_2'.
+
+Profile:   kat-personal
+Host:      https://fevm-kat-personal.cloud.databricks.com
+Auth type: OAuth (databricks-cli)
+
+Next steps:
+  - Verify you have the required permissions for this operation
+  - Check your identity: databricks auth describe --profile kat-personal
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.load(sys.stdin); print(d.get('name'))
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/Users/kateryna.savchyn/miniconda3/lib/python3.13/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/Users/kateryna.savchyn/miniconda3/lib/python3.13/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/Users/kateryna.savchyn/miniconda3/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kateryna.savchyn/miniconda3/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+{
+  "name": "synced_tables/kat_personal_catalog.cfo_febar.ai_budget_serving",
+  "spec": {
+    "branch": "projects/cfo-ops/branches/production",
+    "create_database_objects_if_missing": true,
+    "new_pipeline_spec": {
+      "storage_catalog": "kat_personal_catalog",
+      "storage_schema": "cfo_febar"
+    },
+    "postgres_database": "databricks_postgres",
+    "primary_key_columns": [
+      "cost_center"
+    ],
+    "scheduling_policy": "SNAPSHOT",
+    "source_table_full_name": "kat_personal_catalog.cfo_febar.gold_ai_cost_by_cost_center"
+  },
+  "status": {
+    "detailed_state": "SYNCED_TABLE_PROVISIONING_PIPELINE_RESOURCES",
+    "message": "Synced table is currently pending setup of pipeline resources. Check latest status in Delta Live Tables: https://fevm-kat-personal.cloud.databricks.com#joblist/pipelines/e076f2ad-d3e6-4e8d-84a0-38f433116f49/updates/fda4a156-dd97-4051-8d12-da62a9476023",
+    "ongoing_sync_progress": {},
+    "pipeline_id": "e076f2ad-d3e6-4e8d-84a0-38f433116f49",
+    "project": "projects/cfo-ops",
+    "unity_catalog_provisioning_state": "ACTIVE"
+  },
+  "synced_table_id": "kat_personal_catalog.cfo_febar.ai_budget_serving",
+  "uid": "cad8cfe8-6a82-498f-a259-6538fcbf89d6"
+}

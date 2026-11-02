@@ -1,0 +1,44 @@
+Lakeflow Declarative Pipeline 'CFO Demo — Bronze Ingest (cfo-febar)'
+pipeline_id e79de7c5-7300-44d2-8a8a-b9c8ecee1d0e  update_id a7c31a63-612f-48e3-9d2c-7fd92c13621d  (run as task ingest_bronze of job run 595756286301571)
+Serverless. Auto Loader (cloudFiles, format=parquet) from /Volumes/kat_personal_catalog/cfo_febar/raw_landing/<source>/
+
+== Update progress (pipeline event log)
+  2026-11-02T17:38:18.544Z  WAITING_FOR_RESOURCES
+  2026-11-02T17:38:28.688Z  INITIALIZING
+  2026-11-02T17:39:15.648Z  RESETTING
+  2026-11-02T17:39:15.717Z  SETTING_UP_TABLES
+  2026-11-02T17:39:33.095Z  RUNNING
+  2026-11-02T17:40:06.510Z  COMPLETED
+
+== Flows: one Auto Loader flow per bronze streaming table
+  table                                   status      rows_written   expectation 'no_rescued_data' passed / failed
+  bronze_ai_budget_policy                 COMPLETED            100   100 / 0
+  bronze_ai_gateway_external_model_spend  COMPLETED          2,305   2305 / 0
+  bronze_ai_gateway_usage                 COMPLETED        518,400   518400 / 0
+  bronze_ai_list_prices                   COMPLETED              4   4 / 0
+  bronze_billing_usage                    COMPLETED          2,520   2520 / 0
+  bronze_concur_approvals                 COMPLETED         90,000   90000 / 0
+  bronze_concur_expense_items             COMPLETED        270,000   270000 / 0
+  bronze_concur_expense_reports           COMPLETED         90,000   90000 / 0
+  bronze_concur_travel_bookings           COMPLETED         80,000   80000 / 0
+  bronze_cost_center_mapping              COMPLETED            150   150 / 0
+  bronze_sap_accounts_payable             COMPLETED        153,993   153993 / 0
+  bronze_sap_accounts_receivable          COMPLETED         73,133   73133 / 0
+  bronze_sap_cost_centers                 COMPLETED            150   150 / 0
+  bronze_sap_general_ledger               COMPLETED        120,000   120000 / 0
+  bronze_sap_profit_centers               COMPLETED             60   60 / 0
+  bronze_sap_purchase_orders              COMPLETED        153,993   153993 / 0
+  bronze_sfdc_accounts                    COMPLETED            300   300 / 0
+  bronze_sfdc_contracts                   COMPLETED          2,500   2500 / 0
+  bronze_sfdc_engagements                 COMPLETED          8,000   8000 / 0
+  bronze_sfdc_forecasts                   COMPLETED         12,000   12000 / 0
+  bronze_sfdc_opportunities               COMPLETED          4,500   4500 / 0
+  bronze_workday_assignments              COMPLETED         40,000   40000 / 0
+  bronze_workday_billing_rates            COMPLETED         45,000   45000 / 0
+  bronze_workday_cost_rates               COMPLETED         45,000   45000 / 0
+  bronze_workday_employees                COMPLETED         25,000   25000 / 0
+  bronze_workday_organizations            COMPLETED             50   50 / 0
+  bronze_workday_positions                COMPLETED          2,000   2000 / 0
+  bronze_workday_timecards                COMPLETED      3,219,302   3219302 / 0
+
+  28 flows COMPLETED, 4,958,460 rows ingested into kat_personal_catalog.cfo_febar.bronze_*

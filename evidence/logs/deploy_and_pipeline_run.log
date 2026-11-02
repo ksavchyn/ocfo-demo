@@ -1,0 +1,169 @@
+═══════════════════════════════════════════════════════════
+ CFO Demo Bundle Deploy
+─────────────────────────────────────────────────────────
+  Profile:           kat-personal
+  Target:            (bundle default)
+  Catalog:           kat_personal_catalog
+  Schema:            cfo_febar
+  Warehouse ID:      f1bf4bce59e8eee2
+  App name:          cfo-febar
+  Workspace path:    /Workspace/Users/kateryna.savchyn@databricks.com/cfo-febar
+  Genie space ID:    (auto-detect by title)
+  Genie space title: CFO Demo - FE Bar (kat-personal)
+  Refresh data:      yes (will run cfo_data_pipeline at end, blocks ~25-30 min)
+  Skip bronze:       
+═══════════════════════════════════════════════════════════
+
+[1/6] Building dashboards for kat_personal_catalog.cfo_febar...
+    cfo_finance_dashboard_v2_dq_dev.lvdash.json: anchored 42 CURRENT_DATE() -> data as-of subquery
+    cfo_finance_dashboard_v2_dq_dev.lvdash.json: re-keyed 2 forecast-boundary annotation(s) -> 2026-11-08
+    admin_dashboard_v2_dq_dev.lvdash.json: anchored 10 CURRENT_DATE() -> data as-of subquery
+  Built 2 dashboard(s) targeting kat_personal_catalog.cfo_febar.
+
+[2/6] Looking up Genie space 'CFO Demo - FE Bar (kat-personal)'...
+    No Genie space with title 'CFO Demo - FE Bar (kat-personal)' yet (first-time deploy).
+
+[3/6] Bundle deploy #1 (creates/refreshes resources)...
+Uploading bundle files to /Workspace/Users/kateryna.savchyn@databricks.com/cfo-febar/files...
+Files: 1 uploaded, 0 deleted
+Resources: 0 created, 0 changed, 0 deleted, 5 unchanged
+
+═══════════════════════════════════════════════════════════
+ First-time deploy detected.
+ Triggering the data-pipeline job. Waiting for
+ 'provision_genie_space' task to finish (~25-30 min).
+ (The 'generate_insights' task runs afterward and typically
+  takes ~30-45 min; we don't block on it — the app is
+  fully usable once Genie is provisioned.)
+═══════════════════════════════════════════════════════════
+
+    Job ID: 1041293095496499
+    Run ID: 595756286301571
+    Run URL: https://fevm-kat-personal.cloud.databricks.com/jobs/1041293095496499/runs/595756286301571
+
+    Polling every 5 min. Cancel with Ctrl-C if you want to stop.
+
+    [0000s] provision_genie_space: BLOCKED / ?
+    [0300s] provision_genie_space: BLOCKED / ?
+    [0600s] provision_genie_space: BLOCKED / ?
+    [0900s] provision_genie_space: BLOCKED / ?
+    [1200s] provision_genie_space: TERMINATED / SUCCESS
+    provision_genie_space succeeded.
+
+    Re-resolving Genie space ID...
+    Genie space: 01f1d6e614f91469b66b9496d78cfdb4
+
+[4/6] Generating app.yml from bundle's resolved env...
+Wrote app.yml with 11 env vars for app 'cfo-febar'.
+
+[5/6] Bundle deploy #2 (syncs regenerated app.yml)...
+Uploading bundle files to /Workspace/Users/kateryna.savchyn@databricks.com/cfo-febar/files...
+Updated dashboards.admin_dashboard
+Updated dashboards.cfo_finance_dashboard
+Updated jobs.cfo_data_pipeline
+Files: 3 uploaded, 0 deleted
+Resources: 0 created, 3 changed, 0 deleted, 2 unchanged
+
+[6/6] Restarting the app (databricks apps deploy)...
+    App: cfo-febar
+    Source: /Workspace/Users/kateryna.savchyn@databricks.com/cfo-febar/files
+    App compute is 'STOPPED'; starting before deploy...
+{
+  "app_status": {
+    "message": "App has status: App has not been deployed yet. Run your app by deploying source code",
+    "state": "UNAVAILABLE"
+  },
+  "compute_size": "MEDIUM",
+  "compute_status": {
+    "message": "App compute is running.",
+    "state": "ACTIVE"
+  },
+  "create_time": "2026-11-02T17:31:42Z",
+  "creator": "kateryna.savchyn@databricks.com",
+  "description": "CFO Operations Platform — Finance \u0026 Admin control center.",
+  "effective_user_api_scopes": [
+    "iam.access-control:read",
+    "iam.current-user:read"
+  ],
+  "id": "a3b2e23a-4346-4d46-a71d-8cfdaa189702",
+  "name": "cfo-febar",
+  "oauth2_app_client_id": "f97506b5-52da-4ae6-b048-e65d25fe10cc",
+  "oauth2_app_integration_id": "f97506b5-52da-4ae6-b048-e65d25fe10cc",
+  "service_principal_client_id": "a3b2e23a-4346-4d46-a71d-8cfdaa189702",
+  "service_principal_id": 74871205774455,
+  "service_principal_name": "app-k2xfjn cfo-febar",
+  "thumbnail_url": "",
+  "update_time": "2026-11-02T17:54:38Z",
+  "updater": "kateryna.savchyn@databricks.com",
+  "url": "https://cfo-febar-7474659787238214.aws.databricksapps.com"
+}
+{
+  "create_time": "2026-11-02T17:54:49Z",
+  "creator": "kateryna.savchyn@databricks.com",
+  "deployment_artifacts": {
+    "source_code_path": "/Workspace/Users/a3b2e23a-4346-4d46-a71d-8cfdaa189702/src/01f1d6e67fbe1473bb0aafe06a31afab"
+  },
+  "deployment_id": "01f1d6e67fbe1473bb0aafe06a31afab",
+  "mode": "SNAPSHOT",
+  "source_code_path": "/Workspace/Users/kateryna.savchyn@databricks.com/cfo-febar/files",
+  "status": {
+    "message": "App started successfully",
+    "state": "SUCCEEDED"
+  },
+  "update_time": "2026-11-02T17:55:25Z"
+}
+
+Granting app's service principal access to kat_personal_catalog.cfo_febar + warehouse...
+  App SP: a3b2e23a-4346-4d46-a71d-8cfdaa189702
+  ✓ USE CATALOG on kat_personal_catalog
+  ✓ USE SCHEMA + SELECT on kat_personal_catalog.cfo_febar
+  ✓ CAN_USE on warehouse f1bf4bce59e8eee2
+  ✓ CAN_RUN on Genie space 01f1d6e614f91469b66b9496d78cfdb4
+
+Ensuring dashboard refresh schedules...
+Ensuring daily refresh schedule for both dashboards (cron='0 0 4 * * ?' tz='America/New_York')…
+  [cfo_finance_dashboard] already has 1 schedule(s) — leaving alone: Auto-refresh (CFO bundle default)
+  [admin_dashboard] already has 1 schedule(s) — leaving alone: Auto-refresh (CFO bundle default)
+
+[7/7] --refresh-data set → running cfo_data_pipeline + waiting for full completion...
+    Run ID: 595756286301571 (resuming the run already triggered by the first-time-deploy branch)
+    Run URL: https://fevm-kat-personal.cloud.databricks.com/jobs/1041293095496499/runs/595756286301571
+    (open this URL in your browser to watch progress while deploy.sh polls)
+    Polling every 5 min. Output is quiet — one line per task completion, plus a heartbeat every poll.
+
+    [0000s] ✓ envelope_safety_net      SUCCESS
+    [0000s] ✓ build_silver_gold        SUCCESS
+    [0000s] ✓ ingest_bronze            SUCCESS
+    [0000s] ✓ provision_genie_space    SUCCESS
+    [0000s] ✓ create_metric_views      SUCCESS
+    [0000s] ✓ hydrate_bronze           SUCCESS
+    [0300s] still running: generate_insights (6/9 tasks done)
+    [0600s] still running: generate_insights (6/9 tasks done)
+    [0900s] still running: generate_insights (6/9 tasks done)
+    [1200s] still running: generate_insights (6/9 tasks done)
+    [1500s] ✓ generate_insights        SUCCESS
+    [1500s] ✓ refresh_dashboards       SUCCESS
+    [1500s] ✓ validate_consistency     SUCCESS
+    [1500s] waiting on next task (9/9 tasks done)
+
+    cfo_data_pipeline finished successfully (9/9 tasks, 1500s).
+
+═══════════════════════════════════════════════════════════
+ Deploy complete.
+═══════════════════════════════════════════════════════════
+
+Deployed resources:
+  Job [cfo_data_pipeline]: https://fevm-kat-personal.cloud.databricks.com/jobs/1041293095496499?w=7474659787238214
+  Dashboard [admin_dashboard]: https://fevm-kat-personal.cloud.databricks.com/dashboardsv3/01f1d6e3443917bebc9c0d33acf26c47/published?w=7474659787238214
+  Dashboard [cfo_finance_dashboard]: https://fevm-kat-personal.cloud.databricks.com/dashboardsv3/01f1d6e3444f13c39764b8082f1052f9/published?w=7474659787238214
+  App [cfo-febar]: https://fevm-kat-personal.cloud.databricks.com/apps/cfo-febar
+  Genie space [01f1d6e614f91469b66b9496d78cfdb4]: https://fevm-kat-personal.cloud.databricks.com/genie/rooms/01f1d6e614f91469b66b9496d78cfdb4
+
+Notes:
+  • First-time deploys: the 'generate_insights' task continues running in the
+    background after this script exits — typically ~30-45 min depending on your
+    Genie QPM tier. The app is fully usable once Genie is provisioned;
+    Executive Summary insight tiles populate as that task progresses.
+  • Customer-specific: open and run notebooks/customer_mapping.py to swap
+    the synthetic data for views over your real source tables.
+EXIT=0
